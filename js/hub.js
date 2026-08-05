@@ -35,6 +35,20 @@
   let portals = [];                   // travel gates in the current world
   let extras = [];                    // animated world objects (skeletons, ...)
   let hintShown = false;
+  let terrain = null;                 // walkable terrain (the Vale): {meshes, caster, ...}
+  let firePos = { x: 0, z: 0 };       // bonfire location in the current world
+  const WORLD_ORDER = ["hold", "vale", "battlefield"];
+  const WORLD_TITLES = { hold: "Roundtable Hold", vale: "The Forgotten Vale", battlefield: "The Ashen Battlefield" };
+  const WORLD_SPAWNS = { hold: [15.8, 6.6], vale: [0, 30], battlefield: [0, 32] };
+
+  /* terrain ground sampling — raycast straight down onto the vale mesh */
+  function groundHeight(x, z) {
+    if (!terrain) return 0;
+    terrain.origin.set(x, terrain.top, z);
+    terrain.caster.set(terrain.origin, terrain.dir);
+    const hits = terrain.caster.intersectObjects(terrain.meshes, true);
+    return hits.length ? terrain.top - hits[0].distance : null;
+  }
 
   /* soft round particle sprite (fixes square-looking fire) */
   let dotTexCache = null;
@@ -59,7 +73,9 @@
     glb,
     active, built,
     x: knight ? +knight.position.x.toFixed(2) : null,
+    y: knight ? +knight.position.y.toFixed(2) : null,
     z: knight ? +knight.position.z.toFixed(2) : null,
+    world: worldName,
     keys: Object.keys(keys).filter((k) => keys[k]),
     near: nearTarget ? (nearTarget.title || "bonfire") : null,
   });
@@ -118,6 +134,7 @@
     worlds[worldName] = {
       scene, colliders, stones, torchLights, runes, runesGot,
       chestObj, chestOpened, mists, portals, extras, fireLight, firePts, emberPts, bound,
+      terrain, firePos,
     };
   }
 
@@ -128,16 +145,20 @@
     const w = worlds[name];
     if (w) {
       ({ scene, colliders, stones, torchLights, runes, runesGot,
-         chestObj, chestOpened, mists, portals, extras, fireLight, firePts, emberPts, bound } = w);
+         chestObj, chestOpened, mists, portals, extras, fireLight, firePts, emberPts, bound,
+         terrain, firePos } = w);
     } else {
       scene = new THREE.Scene();
       colliders = []; stones = []; torchLights = []; runes = []; runesGot = 0;
       chestObj = null; chestOpened = false; mists = []; portals = []; extras = [];
       fireLight = null; firePts = null; emberPts = null;
-      if (name === "battlefield") buildBattlefield(); else buildHold();
+      terrain = null; firePos = { x: 0, z: 0 };
+      if (name === "battlefield") buildBattlefield();
+      else if (name === "vale") buildVale(); // async — knight snaps to terrain when ready
+      else buildHold();
     }
     scene.add(knight);
-    knight.position.set(spawn[0], 0, spawn[1]);
+    knight.position.set(spawn[0], terrain ? (groundHeight(spawn[0], spawn[1]) ?? 0) : 0, spawn[1]);
     const face = Math.atan2(-spawn[0], -spawn[1]);
     knight.rotation.y = face;
     camYaw = face;
@@ -145,18 +166,18 @@
     updatePrompt();
     updateRunesHUD();
     const tbtn = document.getElementById("hub-travel");
-    if (tbtn) tbtn.textContent = name === "hold"
-      ? "⚔ TRAVEL — THE ASHEN BATTLEFIELD"
-      : "⚔ TRAVEL — ROUNDTABLE HOLD";
+    if (tbtn) {
+      const next = WORLD_ORDER[(WORLD_ORDER.indexOf(name) + 1) % WORLD_ORDER.length];
+      tbtn.textContent = "⚔ TRAVEL — " + WORLD_TITLES[next].toUpperCase();
+    }
   }
 
   function travel() {
-    const dest = worldName === "hold" ? "battlefield" : "hold";
-    const spawn = dest === "battlefield" ? [0, 32] : [15.8, 6.6];
-    const title = dest === "battlefield" ? "The Ashen Battlefield" : "Roundtable Hold";
+    const dest = WORLD_ORDER[(WORLD_ORDER.indexOf(worldName) + 1) % WORLD_ORDER.length];
+    const title = WORLD_TITLES[dest];
     if (window.SFX) SFX.play("rest");
     showReveal(title);
-    enterWorld(dest, spawn);
+    enterWorld(dest, WORLD_SPAWNS[dest]);
     if (window.__toast) __toast("New Area — " + title);
   }
 
@@ -231,8 +252,8 @@
       }, undefined, () => {});
     }
 
-    /* travel gate to the battlefield — eastern wall, in the gap between stones */
-    addPortal(18.3, 7.6, "battlefield", [0, 32], "The Ashen Battlefield");
+    /* travel gate to the Vale — eastern wall, in the gap between stones */
+    addPortal(18.3, 7.6, "vale", [0, 30], "The Forgotten Vale");
   }
 
   /* shared night sky: star dome + moon */
@@ -278,17 +299,17 @@
     portalTexCache = new THREE.CanvasTexture(c);
     return portalTexCache;
   }
-  function addPortal(x, z, dest, spawn, title) {
+  function addPortal(x, z, dest, spawn, title, baseY = 0) {
     const sc = scene;
     const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2.5, 3.4), new THREE.MeshBasicMaterial({
       map: portalTexture(), transparent: true, opacity: 0.75, side: THREE.DoubleSide,
       blending: THREE.AdditiveBlending, depthWrite: false,
     }));
-    mesh.position.set(x, 1.9, z);
-    mesh.lookAt(0, 1.9, 0);
+    mesh.position.set(x, baseY + 1.9, z);
+    mesh.lookAt(firePos.x, baseY + 1.9, firePos.z);
     sc.add(mesh);
     const light = new THREE.PointLight(0xffb86b, 1.4, 12, 2);
-    light.position.set(x, 2.2, z);
+    light.position.set(x, baseY + 2.2, z);
     sc.add(light);
     // sky beacon so the gate can be spotted from anywhere
     const beam = new THREE.Mesh(
@@ -298,11 +319,142 @@
         blending: THREE.AdditiveBlending, depthWrite: false,
       })
     );
-    beam.position.set(x, 15, z);
+    beam.position.set(x, baseY + 15, z);
     sc.add(beam);
     const rr = Math.hypot(x, z) || 1;
-    envPlace("arch_gate.gltf", x * ((rr + 1.3) / rr), z * ((rr + 1.3) / rr), Math.atan2(-x, -z), 4.4);
+    envPlace("arch_gate.gltf", x * ((rr + 1.3) / rr), z * ((rr + 1.3) / rr), Math.atan2(-x, -z), 4.4)
+      .then((m) => { if (m && baseY) m.position.y += baseY; });
     portals.push({ x, z, dest, spawn, title, mesh, light, beam });
+  }
+
+  /* ========================================= WORLD: THE FORGOTTEN VALE
+     A real sculpted terrain (creek falls model, via Sketchfab). The knight
+     walks ON the mesh: ground height is raycast-sampled every frame, steep
+     slopes block movement, stairs and paths are climbable. All content
+     (spawn, bonfire, stones, runes, chest) is auto-placed by scanning the
+     terrain for genuinely walkable cells — no hand-tuned collision. */
+  async function buildVale() {
+    bound = 9999; // the terrain itself is the boundary
+    scene.background = new THREE.Color(0x241d2e);
+    scene.fog = new THREE.Fog(0x2a2136, 45, 230);
+
+    /* golden-hour dusk to match the model's baked daylight */
+    scene.add(new THREE.HemisphereLight(0x9587b2, 0x4a3c28, 1.5));
+    scene.add(new THREE.AmbientLight(0x4a4056, 1.0));
+    const sun = new THREE.DirectionalLight(0xffcf94, 1.5);
+    sun.position.set(-45, 65, 35);
+    scene.add(sun);
+    fireLight = new THREE.PointLight(0xff7a3c, 3.0, 40, 1.5);
+    scene.add(fireLight);
+    addSky(260, 650, 9);
+
+    const asset = await envLoad("vale.glb");
+    if (!asset) { if (window.__toast) __toast("The Vale failed to load…"); return; }
+    if (worldName !== "vale") return; // user traveled away mid-load
+    const model = asset.scene; // single use — no clone needed
+
+    /* normalize: ~92 units wide, centered, lowest point at y=0 */
+    const box = new THREE.Box3().setFromObject(model);
+    const dim = new THREE.Vector3(); box.getSize(dim);
+    const ctr = new THREE.Vector3(); box.getCenter(ctr);
+    const s = 92 / Math.max(dim.x, dim.z);
+    model.scale.setScalar(s);
+    model.position.set(-ctr.x * s, -box.min.y * s, -ctr.z * s);
+    scene.add(model);
+    model.updateMatrixWorld(true);
+    const meshes = [];
+    model.traverse((o) => { if (o.isMesh) meshes.push(o); });
+    terrain = {
+      meshes,
+      caster: new THREE.Raycaster(),
+      origin: new THREE.Vector3(),
+      dir: new THREE.Vector3(0, -1, 0),
+      top: dim.y * s + 15,
+    };
+
+    /* ---- walkability scan: grid of ground samples, slope-checked ---- */
+    const cells = [];
+    for (let gz = -45; gz <= 45; gz += 2) {
+      for (let gx = -45; gx <= 45; gx += 2) {
+        const h = groundHeight(gx, gz);
+        if (h === null) continue;
+        const nb = [groundHeight(gx + 1, gz), groundHeight(gx - 1, gz),
+                    groundHeight(gx, gz + 1), groundHeight(gx, gz - 1)];
+        if (nb.some((v) => v === null || Math.abs(v - h) > 0.55)) continue;
+        cells.push({ x: gx, z: gz, h });
+      }
+    }
+    if (!cells.length) { if (window.__toast) __toast("The Vale terrain has no walkable ground…"); return; }
+
+    const hs = cells.map((c) => c.h).sort((a, b) => a - b);
+    const loH = hs[Math.floor(hs.length * 0.3)];
+    const lowCells = cells.filter((c) => c.h <= loH + 1);
+    const cx0 = cells.reduce((s2, c) => s2 + c.x, 0) / cells.length;
+    const cz0 = cells.reduce((s2, c) => s2 + c.z, 0) / cells.length;
+
+    const spawnC = lowCells.reduce((a, b) => (b.z > a.z ? b : a));                       // south meadow
+    const fireC = lowCells.reduce((a, b) =>
+      (Math.hypot(b.x - cx0, b.z - cz0) < Math.hypot(a.x - cx0, a.z - cz0) ? b : a));   // central clearing
+    const flagC = cells.reduce((a, b) => (b.h > a.h ? b : a));                           // highest overlook
+
+    buildBonfire(fireC.x, fireC.h, fireC.z);
+
+    /* ---- stones: flagship on the peak, the rest spread by angular sector ---- */
+    const P = window.PORTFOLIO;
+    const list = [
+      { slug: P.featured.slug, title: P.featured.title, flagship: true },
+      ...P.projects.map((p) => ({ slug: p.slug, title: p.title })),
+    ];
+    placeStone(list[0], flagC.x, flagC.z, { y: flagC.h, shrine: false });
+    const rest = list.slice(1);
+    rest.forEach((p, i) => {
+      const a0 = (i / rest.length) * Math.PI * 2;
+      let bestC = null, bestScore = -1;
+      for (const c of cells) {
+        const dx = c.x - fireC.x, dz = c.z - fireC.z;
+        const d = Math.hypot(dx, dz);
+        if (d < 7) continue;
+        let da = Math.atan2(dx, dz) - a0;
+        da = Math.atan2(Math.sin(da), Math.cos(da));
+        if (Math.abs(da) > Math.PI / rest.length) continue;
+        const score = Math.min(d, 38) + c.h * 1.5; // favor far + elevated spots
+        if (score > bestScore) { bestScore = score; bestC = c; }
+      }
+      if (!bestC) bestC = cells[(i * 37) % cells.length];
+      placeStone(p, bestC.x, bestC.z, { y: bestC.h, shrine: false });
+    });
+
+    /* ---- runes: high ledges + scattered ground, well separated ---- */
+    const byH = [...cells].sort((a, b) => b.h - a.h);
+    const pool = [...byH.slice(0, 30), ...cells.filter((_, i) => i % 11 === 0)];
+    const rspots = [];
+    for (const c of pool) {
+      if (rspots.length >= 10) break;
+      if (Math.hypot(c.x - fireC.x, c.z - fireC.z) < 5) continue;
+      if (rspots.some(([sx, sz]) => Math.hypot(sx - c.x, sz - c.z) < 9)) continue;
+      rspots.push([c.x, c.z, c.h]);
+    }
+    addRunes(rspots);
+
+    /* ---- chest at the far end of the map from spawn ---- */
+    const chestC = cells.reduce((a, b) =>
+      (Math.hypot(b.x - spawnC.x, b.z - spawnC.z) > Math.hypot(a.x - spawnC.x, a.z - spawnC.z) ? b : a));
+    envPlace("chest_gold.glb", chestC.x, chestC.z, Math.random() * 6.28, 1.5, 0.9)
+      .then((m) => { if (m) { m.position.y += chestC.h; chestObj = m; } });
+
+    addPortal(spawnC.x, spawnC.z, "hold", [15.8, 6.6], "Roundtable Hold", spawnC.h);
+    addMists(9, 26, loH + 1.2);
+    emberPts = makeEmbers(360, 46);
+    scene.add(emberPts.points);
+
+    /* drop the knight at the computed spawn, facing the fire */
+    if (worldName === "vale") {
+      knight.position.set(spawnC.x, spawnC.h, spawnC.z);
+      const face = Math.atan2(fireC.x - spawnC.x, fireC.z - spawnC.z);
+      knight.rotation.y = face;
+      camYaw = face;
+      vel.x = vel.z = 0;
+    }
   }
 
   /* ======================================== WORLD 2: THE ASHEN BATTLEFIELD */
@@ -446,7 +598,7 @@
 
   /* drifting ground mist for the current world */
   let mistTexCache = null;
-  function addMists(count, spread) {
+  function addMists(count, spread, baseY = 0.8) {
     if (!mistTexCache) {
       const c = document.createElement("canvas"); c.width = c.height = 256;
       const x = c.getContext("2d");
@@ -462,7 +614,7 @@
       }));
       const a = (i / count) * Math.PI * 2;
       const r = spread * (0.35 + (i % 3) * 0.3);
-      sp.position.set(Math.cos(a) * r, 0.8, Math.sin(a) * r);
+      sp.position.set(Math.cos(a) * r, baseY, Math.sin(a) * r);
       sp.scale.set(14 + (i % 3) * 5, 4.8, 1);
       scene.add(sp);
       mists.push({ sp, ph: i * 1.9 });
@@ -689,13 +841,14 @@
     envLoad("coin").then((asset) => {
       if (!asset) return;
       const src = asset.scene;
-      spots.forEach(([x, z], i) => {
+      spots.forEach(([x, z, y], i) => {
         const m = src.clone(true);
         m.scale.setScalar(2.2);
-        m.position.set(x, 1.0, z);
+        const baseY = (y || 0) + 1.0;
+        m.position.set(x, baseY, z);
         m.traverse((o) => { if (o.isMesh) { o.material = o.material.clone(); o.material.emissive = new THREE.Color(0xc98a20); o.material.emissiveIntensity = 0.6; } });
         sc.add(m);
-        rn.push({ m, x, z, got: false, ph: i * 1.3 });
+        rn.push({ m, x, z, baseY, got: false, ph: i * 1.3 });
       });
       updateRunesHUD();
     });
@@ -710,8 +863,9 @@
   }
 
   /* ---- central bonfire (the hero bonfire, reborn in the hub) ---- */
-  function buildBonfire() {
+  function buildBonfire(cx = 0, cy = 0, cz = 0) {
     const THREE = window.THREE;
+    const g = new THREE.Group();
     const coalGeo = new THREE.IcosahedronGeometry(0.2, 0);
     for (let i = 0; i < 34; i++) {
       const hot = Math.random() < 0.45;
@@ -725,7 +879,7 @@
       const s = 0.6 + Math.random();
       m.scale.set(s, s * 0.7, s);
       m.rotation.set(Math.random() * 3, Math.random() * 3, Math.random() * 3);
-      scene.add(m);
+      g.add(m);
     }
     // planted sword
     const steel = new THREE.MeshStandardMaterial({ color: 0xb9bcc6, metalness: 0.9, roughness: 0.32 });
@@ -738,10 +892,14 @@
     const pom = new THREE.Mesh(new THREE.SphereGeometry(0.08, 8, 8), gold); pom.position.y = 2.92;
     sword.add(blade, guard, hilt, pom);
     sword.rotation.z = -0.08;
-    scene.add(sword);
+    g.add(sword);
     firePts = makeFire(110);
-    scene.add(firePts.points);
-    colliders.push({ x: 0, z: 0, r: 1.7 });
+    g.add(firePts.points);
+    g.position.set(cx, cy, cz);
+    scene.add(g);
+    colliders.push({ x: cx, z: cz, r: 1.7 });
+    firePos = { x: cx, z: cz };
+    if (fireLight) fireLight.position.set(cx, cy + 1.0, cz);
   }
 
   /* ---- one gravestone per project, rings around the fire ---- */
@@ -764,8 +922,9 @@
     });
   }
 
-  function placeStone(p, x, z) {
+  function placeStone(p, x, z, opts = {}) {
     const THREE = window.THREE;
+    const baseY = opts.y || 0;
     const W = p.flagship ? 2.2 : 1.5, H = p.flagship ? 2.9 : 2.0, D = 0.42;
     const g = new THREE.Group();
 
@@ -787,28 +946,30 @@
       g.add(trim);
     }
 
-    g.position.set(x, 0, z);
-    g.lookAt(0, 0, 0); // face the bonfire
+    g.position.set(x, baseY, z);
+    g.lookAt(firePos.x, baseY, firePos.z); // face the bonfire
     g.rotation.y += (Math.random() - 0.5) * 0.12;
     g.rotation.z = (Math.random() - 0.5) * 0.03;
     scene.add(g);
 
-    // EVERY project gets its own shrine gate: an arch right behind the stone,
-    // facing the bonfire, with a lantern post beside every other one.
-    const rr = Math.hypot(x, z) || 1;
-    const bx = x * ((rr + 1.9) / rr), bz = z * ((rr + 1.9) / rr); // just behind
-    const faceCenter = Math.atan2(-bx, -bz);
-    const archName = p.flagship ? "arch_gate.gltf" : (stones.length % 2 ? "arch.gltf" : "arch_gate.gltf");
-    envPlace(archName, bx, bz, faceCenter, p.flagship ? 4.4 : 3.0);
-    if (!p.flagship && stones.length % 2 === 0) {
-      // tangent offset for the lantern
-      const tx = -z / rr, tz = x / rr;
-      envPlace("post_lantern.gltf", x + tx * 2.1, z + tz * 2.1, faceCenter, 0.65, 0.3);
+    // Shrine gate: an arch right behind the stone, facing the bonfire,
+    // with a lantern post beside every other one (flat worlds only).
+    if (opts.shrine !== false) {
+      const rr = Math.hypot(x, z) || 1;
+      const bx = x * ((rr + 1.9) / rr), bz = z * ((rr + 1.9) / rr); // just behind
+      const faceCenter = Math.atan2(-bx, -bz);
+      const archName = p.flagship ? "arch_gate.gltf" : (stones.length % 2 ? "arch.gltf" : "arch_gate.gltf");
+      envPlace(archName, bx, bz, faceCenter, p.flagship ? 4.4 : 3.0);
+      if (!p.flagship && stones.length % 2 === 0) {
+        // tangent offset for the lantern
+        const tx = -z / rr, tz = x / rr;
+        envPlace("post_lantern.gltf", x + tx * 2.1, z + tz * 2.1, faceCenter, 0.65, 0.3);
+      }
     }
 
     // floating gold label (visible when near)
     const label = makeLabel(p.title);
-    label.position.set(x, H + 1.0, z);
+    label.position.set(x, baseY + H + 1.0, z);
     scene.add(label);
     labels.push(label);
 
@@ -1118,7 +1279,7 @@
     }
     if (nearTarget.portal) {
       const { dest, spawn } = nearTarget;
-      const title = dest === "battlefield" ? "The Ashen Battlefield" : "Roundtable Hold";
+      const title = WORLD_TITLES[dest] || dest;
       if (window.SFX) SFX.play("rest");
       showReveal(title);
       enterWorld(dest, spawn);
@@ -1159,6 +1320,7 @@
     const SPEED = sprinting ? 8.0 : 5.0, ACC = 14;
     vel.x += (wx * SPEED - vel.x) * Math.min(1, ACC * dt);
     vel.z += (wz * SPEED - vel.z) * Math.min(1, ACC * dt);
+    const pvx = knight.position.x, pvz = knight.position.z; // for terrain blocking
     knight.position.x += vel.x * dt;
     knight.position.z += vel.z * dt;
 
@@ -1175,6 +1337,29 @@
         knight.position.x = c.x + (dx / d) * min;
         knight.position.z = c.z + (dz / d) * min;
       }
+    }
+
+    /* -- terrain walking (the Vale): follow ground height, block steep climbs -- */
+    if (terrain) {
+      const MAX_STEP = 0.68; // tallest ledge the knight can step up
+      const h = groundHeight(knight.position.x, knight.position.z);
+      if (h === null || h - knight.position.y > MAX_STEP) {
+        // blocked — slide along whichever single axis stays walkable
+        knight.position.x = pvx; knight.position.z = pvz;
+        const nx = pvx + vel.x * dt, nz = pvz + vel.z * dt;
+        const hx = groundHeight(nx, pvz);
+        if (hx !== null && hx - knight.position.y <= MAX_STEP) knight.position.x = nx;
+        else {
+          const hz = groundHeight(pvx, nz);
+          if (hz !== null && hz - knight.position.y <= MAX_STEP) knight.position.z = nz;
+        }
+      }
+      const gh = groundHeight(knight.position.x, knight.position.z);
+      if (gh !== null) {
+        knight.position.y += (gh - knight.position.y) * Math.min(1, (gh < knight.position.y ? 9 : 16) * dt);
+      }
+    } else if (Math.abs(knight.position.y) > 0.001) {
+      knight.position.y += (0 - knight.position.y) * Math.min(1, 10 * dt); // flat worlds
     }
 
     // facing + walk animation
@@ -1235,13 +1420,13 @@
       camera.updateProjectionMatrix();
     }
     const hd = camDist * Math.cos(camPitch);           // horizontal orbit radius
-    const ch = 1.0 + camDist * Math.sin(camPitch);     // camera height from pitch
+    const ch = knight.position.y + 1.0 + camDist * Math.sin(camPitch); // height-aware
     const tx = knight.position.x - Math.sin(camYaw) * hd;
     const tz = knight.position.z - Math.cos(camYaw) * hd;
     camera.position.x += (tx - camera.position.x) * Math.min(1, 6 * dt);
     camera.position.z += (tz - camera.position.z) * Math.min(1, 6 * dt);
     camera.position.y += (ch - camera.position.y) * Math.min(1, 6 * dt);
-    camera.lookAt(knight.position.x, 1.4, knight.position.z);
+    camera.lookAt(knight.position.x, knight.position.y + 1.4, knight.position.z);
 
     /* -- interactions: nearest stone or the bonfire -- */
     let best = null, bestD = 3.4;
@@ -1259,7 +1444,7 @@
         if (d < 3.0) { best = { portal: true, dest: p.dest, spawn: p.spawn, title: "Travel — " + p.title }; break; }
       }
     }
-    const fireD = Math.hypot(knight.position.x, knight.position.z);
+    const fireD = Math.hypot(knight.position.x - firePos.x, knight.position.z - firePos.z);
     if (fireD < 3.0 && !best) best = { bonfire: true, title: "Rest at the Bonfire" };
     const keyOf = (o) => o ? (o.slug || (o.bonfire && "bonfire") || (o.chest && "chest") || (o.portal && "portal:" + o.dest)) : null;
     if (keyOf(best) !== keyOf(nearTarget)) {
@@ -1272,7 +1457,7 @@
     for (const r of runes) {
       if (r.got) continue;
       r.m.rotation.y = t * 2 + r.ph;
-      r.m.position.y = 1.0 + Math.sin(t * 2.4 + r.ph) * 0.18;
+      r.m.position.y = (r.baseY || 1.0) + Math.sin(t * 2.4 + r.ph) * 0.18;
       const d = Math.hypot(knight.position.x - r.x, knight.position.z - r.z);
       if (d < 1.5) {
         r.got = true;

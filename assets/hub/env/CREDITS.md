@@ -9,3 +9,6 @@ Also includes assets from these KayKit packs (all CC0 1.0, same author):
 - KayKit - Halloween Bits (graveyard: arches, crypt, trees, fences, lanterns)
 - KayKit - Medieval Hexagon Pack (castle, towers, ruins, mountains, nature)
 - KayKit - Character Pack: Skeletons (animated skeleton characters)
+
+vale.glb - "creek falls world maps" terrain, downloaded from Sketchfab by the site owner.
+License: per the model page on Sketchfab (check author attribution requirements there).
