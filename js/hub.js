@@ -50,12 +50,24 @@
     .catch(() => {});
 
   /* terrain ground sampling — raycast straight down onto the vale mesh */
-  function groundHeight(x, z) {
-    if (!terrain) return 0;
+  function castGround(x, z) {
     terrain.origin.set(x, terrain.top, z);
     terrain.caster.set(terrain.origin, terrain.dir);
     const hits = terrain.caster.intersectObjects(terrain.meshes, true);
     return hits.length ? terrain.top - hits[0].distance : null;
+  }
+  function groundHeight(x, z) {
+    if (!terrain) return 0;
+    let h = castGround(x, z);
+    if (h === null) {
+      // hairline seams between the model's ground tiles swallow the ray —
+      // probe a whisker around before calling it a hole
+      for (const o of [[0.2, 0], [-0.2, 0], [0, 0.2], [0, -0.2]]) {
+        h = castGround(x + o[0], z + o[1]);
+        if (h !== null) break;
+      }
+    }
+    return h;
   }
 
   /* soft round particle sprite (fixes square-looking fire) */
@@ -87,6 +99,13 @@
     keys: Object.keys(keys).filter((k) => keys[k]),
     near: nearTarget ? (nearTarget.title || "bonfire") : null,
   });
+  window.Hub.stones = () => stones.map((s) => ({
+    t: s.title, x: +s.x.toFixed(1), z: +s.z.toFixed(1),
+    y: +s.group.position.y.toFixed(2),
+    gh: terrain ? +(groundHeight(s.x, s.z) ?? -999).toFixed(2) : 0,
+  }));
+  window.Hub.world = (n) => enterWorld(n, WORLD_SPAWNS[n] || [0, 0]);
+  window.Hub.gh = (x, z, raw) => (terrain ? (raw ? castGround(x, z) : groundHeight(x, z)) : 0);
 
   /* ============================================================ ENTER / EXIT */
   function enter() {
@@ -361,6 +380,7 @@
       name: "estate", file: "estate.glb", size: 130,
       bg: 0x2a2c40, fogC: 0x30324a, bright: true,
       layout: "avenue", // all project gates in two clean rows — zero searching
+      step: 1.15, // garden-bed curbs are ~1.0 — stroll right over them
     });
   }
 
@@ -413,6 +433,7 @@
       origin: new THREE.Vector3(),
       dir: new THREE.Vector3(0, -1, 0),
       top: dim.y * s + 15,
+      step: cfg.step || 0.68, // per-world ledge height the knight can climb
     };
     terrain.caster.firstHitOnly = true; // BVH fast path; harmless otherwise
 
@@ -457,35 +478,115 @@
     ];
     const rest = list.slice(1);
 
+    let laidOut = false, aim = null;
     if (cfg.layout === "avenue") {
-      /* showcase avenue: every gate visible from spawn in two facing rows,
-         bonfire on the center line, flagship enthroned at the far end */
-      const used = new Set();
-      const nearestCell = (x, z, maxD = 8) => {
-        let b = null, bd = maxD;
-        for (const c of cells) {
-          if (used.has(c)) continue;
-          const d = Math.hypot(c.x - x, c.z - z);
-          if (d < bd) { bd = d; b = c; }
-        }
-        if (b) used.add(b);
-        return b;
+      /* showcase avenue: scan for the longest open corridor from spawn, then
+         line both sides with gates. Every spot is ground-checked AND
+         sight-checked (raycast from the walkway) so hedges or walls can
+         never hide a project gate. */
+      const losDir = new THREE.Vector3();
+      const clearView = (x1, z1, h1, x2, z2, h2) => {
+        const d = Math.hypot(x2 - x1, z2 - z1);
+        if (!d) return true;
+        terrain.origin.set(x1, h1 + 1.35, z1);
+        losDir.set(x2 - x1, h2 - h1, z2 - z1).normalize();
+        terrain.caster.set(terrain.origin, losDir);
+        const hit = terrain.caster.intersectObjects(terrain.meshes, true)[0];
+        return !(hit && hit.distance < d - 0.5);
       };
-      const L = Math.hypot(cx0 - spawnC.x, cz0 - spawnC.z) || 1;
-      const ux = (cx0 - spawnC.x) / L, uz = (cz0 - spawnC.z) / L; // avenue direction
-      const px = -uz, pz = ux;                                     // across the avenue
-      const fc = nearestCell(spawnC.x + ux * 18, spawnC.z + uz * 18) || fireC;
-      buildBonfire(fc.x, fc.h, fc.z);
-      const ec = nearestCell(spawnC.x + ux * 42, spawnC.z + uz * 42) || flagC;
-      placeStone(list[0], ec.x, ec.z, { y: ec.h, shrine: false });
-      rest.forEach((p, i) => {
-        const row = Math.floor(i / 2), side = i % 2 ? 1 : -1;
-        const t = 7 + row * 4.2;
-        const c = nearestCell(spawnC.x + ux * t + px * side * 6, spawnC.z + uz * t + pz * side * 6)
-          || cells[(i * 29) % cells.length];
-        placeStone(p, c.x, c.z, { y: c.h, shrine: false });
-      });
-    } else {
+      const OFF = 4.6; // gate rows this far each side of the walkway
+      let best = null;
+      for (let k = 0; k < 24; k++) {
+        const th = (k / 24) * Math.PI * 2;
+        const u1 = Math.sin(th), u2 = Math.cos(th);
+        let prev = spawnC.h, score = 0, len = 0;
+        for (let t = 3; t <= 72; t += 2) {
+          const x = spawnC.x + u1 * t, z = spawnC.z + u2 * t;
+          const h = groundHeight(x, z);
+          if (h === null || Math.abs(h - prev) > 0.7) break;
+          prev = h; len = t;
+          for (const s of [-1, 1]) {
+            const sx = x - u2 * s * OFF, sz = z + u1 * s * OFF;
+            const sh = groundHeight(sx, sz);
+            if (sh !== null && Math.abs(sh - h) < 1.0 && clearView(x, z, h, sx, sz, sh)) score++;
+          }
+        }
+        if (!best || score > best.score) best = { ux: u1, uz: u2, px: -u2, pz: u1, score, len };
+      }
+
+      if (best && best.len >= 26) {
+        const { ux, uz, px, pz } = best;
+        const at = (t, off = 0) => ({ x: spawnC.x + ux * t + px * off, z: spawnC.z + uz * t + pz * off });
+        const centerH = (t) => groundHeight(spawnC.x + ux * t, spawnC.z + uz * t) ?? spawnC.h;
+
+        // bonfire just BESIDE the walkway — a rest stop, never a roadblock
+        const fT = Math.min(15, best.len * 0.45);
+        let fp = at(fT), fh = centerH(fT);
+        for (const off of [-3.1, 3.1]) {
+          const q = at(fT, off), qh = groundHeight(q.x, q.z);
+          if (qh !== null && Math.abs(qh - fh) < 0.9 && clearView(fp.x, fp.z, fh, q.x, q.z, qh)) {
+            fp = q; fh = qh; break;
+          }
+        }
+        buildBonfire(fp.x, fh, fp.z);
+        aim = at(20); // spawn faces straight down the avenue, not at the fire
+
+        // pass 1: collect every clear slot along both rows (several offsets
+        // tried per spot, spacing relaxed until all gates fit)
+        const trySpot = (t, side) => {
+          const ch = centerH(t);
+          for (const off of [OFF, 3.4, 5.8, 2.4]) {
+            const s = at(t, side * off);
+            const sh = groundHeight(s.x, s.z);
+            if (sh === null || Math.abs(sh - ch) > 1.2) continue;
+            const c = at(t);
+            if (clearView(c.x, c.z, ch, s.x, s.z, sh)) return { x: s.x, z: s.z, h: sh, t, cx: c.x, cz: c.z };
+          }
+          return null;
+        };
+        let slots = [];
+        for (const gap of [4.4, 3.6, 2.9]) {
+          slots = [];
+          const cur = { "-1": 5.5, "1": 5.5 };
+          for (let t = 5.5; t <= best.len && slots.length < rest.length + 4; t += 1.1) {
+            for (const side of [-1, 1]) {
+              if (t < cur[side]) continue;
+              const sp = trySpot(t, side);
+              if (sp) { slots.push(sp); cur[side] = t + gap; }
+            }
+          }
+          if (slots.length >= rest.length) break;
+        }
+        slots.sort((a, b) => a.t - b.t);
+
+        // pass 2: one gate per slot, in project order down the avenue
+        let maxT = fT;
+        rest.forEach((p, i) => {
+          const sp = slots[i];
+          if (sp) {
+            placeStone(p, sp.x, sp.z, { y: sp.h, shrine: false, face: [sp.cx, sp.cz] });
+            maxT = Math.max(maxT, sp.t);
+          } else { // overflow: walkway edge, evenly spaced — never stacked
+            const t = Math.min(7 + i * 2.6, best.len);
+            const c = at(t, (i % 2 ? 1 : -1) * 1.8);
+            placeStone(p, c.x, c.z, { y: groundHeight(c.x, c.z) ?? centerH(t), shrine: false });
+          }
+        });
+
+        // flagship at the end of the walk, facing back up the avenue —
+        // kept on lawn level so no step ever blocks the way to it
+        const lawnH = centerH(Math.min(maxT, best.len));
+        let eT = Math.min(best.len, maxT + 6);
+        let ep = at(eT), eh = groundHeight(ep.x, ep.z);
+        while ((eh === null || Math.abs(eh - lawnH) > 1.0) && eT > fT + 6) {
+          eT -= 1.5; ep = at(eT); eh = groundHeight(ep.x, ep.z);
+        }
+        const bp = at(eT - 8);
+        placeStone(list[0], ep.x, ep.z, { y: eh ?? lawnH, shrine: false, face: [bp.x, bp.z] });
+        laidOut = true;
+      }
+    }
+    if (!laidOut) {
       buildBonfire(fireC.x, fireC.h, fireC.z);
 
       /* stones: flagship on the peak, the rest spread by angular sector */
@@ -531,10 +632,14 @@
     emberPts = makeEmbers(360, R);
     scene.add(emberPts.points);
 
-    /* drop the knight at the computed spawn, facing the fire */
+    /* remember the computed spawn so re-entering this world lands right */
+    WORLD_SPAWNS[cfg.name] = [spawnC.x, spawnC.z];
+
+    /* drop the knight at the computed spawn, facing down the avenue (or the fire) */
     if (worldName === cfg.name) {
       knight.position.set(spawnC.x, spawnC.h, spawnC.z);
-      const face = Math.atan2(fireC.x - spawnC.x, fireC.z - spawnC.z);
+      const fx = aim ? aim.x : firePos.x, fz = aim ? aim.z : firePos.z;
+      const face = Math.atan2(fx - spawnC.x, fz - spawnC.z);
       knight.rotation.y = face;
       camYaw = face;
       vel.x = vel.z = 0;
@@ -1031,7 +1136,9 @@
     }
 
     g.position.set(x, baseY, z);
-    g.lookAt(firePos.x, baseY, firePos.z); // face the bonfire
+    const fx = opts.face ? opts.face[0] : firePos.x;
+    const fz = opts.face ? opts.face[1] : firePos.z;
+    g.lookAt(fx, baseY, fz); // face the walkway (or the bonfire by default)
     g.rotation.y += (Math.random() - 0.5) * 0.12;
     g.rotation.z = (Math.random() - 0.5) * 0.03;
     scene.add(g);
@@ -1425,7 +1532,7 @@
 
     /* -- terrain walking (the Vale): follow ground height, block steep climbs -- */
     if (terrain) {
-      const MAX_STEP = 0.68; // tallest ledge the knight can step up
+      const MAX_STEP = terrain.step || 0.68; // tallest ledge the knight can step up
       const h = groundHeight(knight.position.x, knight.position.z);
       if (h === null || h - knight.position.y > MAX_STEP) {
         // blocked — slide along whichever single axis stays walkable
