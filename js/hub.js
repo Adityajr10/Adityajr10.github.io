@@ -38,8 +38,13 @@
   let terrain = null;                 // walkable terrain (the Vale): {meshes, caster, ...}
   let firePos = { x: 0, z: 0 };       // bonfire location in the current world
   const WORLD_ORDER = ["hold", "vale", "battlefield"];
-  const WORLD_TITLES = { hold: "Roundtable Hold", vale: "The Forgotten Vale", battlefield: "The Ashen Battlefield" };
-  const WORLD_SPAWNS = { hold: [15.8, 6.6], vale: [0, 30], battlefield: [0, 32] };
+  const WORLD_TITLES = { hold: "Roundtable Hold", vale: "The Forgotten Vale", battlefield: "The Ashen Battlefield", wilds: "The Boundless Wilds" };
+  const WORLD_SPAWNS = { hold: [15.8, 6.6], vale: [0, 30], battlefield: [0, 32], wilds: [0, 40] };
+  // Drop another terrain model in as assets/hub/env/wilds.glb and it becomes
+  // a fourth world automatically (same walkable-terrain tech as the Vale).
+  fetch("assets/hub/env/wilds.glb", { method: "HEAD" })
+    .then((r) => { if (r.ok && !WORLD_ORDER.includes("wilds")) WORLD_ORDER.push("wilds"); })
+    .catch(() => {});
 
   /* terrain ground sampling — raycast straight down onto the vale mesh */
   function groundHeight(x, z) {
@@ -154,7 +159,8 @@
       fireLight = null; firePts = null; emberPts = null;
       terrain = null; firePos = { x: 0, z: 0 };
       if (name === "battlefield") buildBattlefield();
-      else if (name === "vale") buildVale(); // async — knight snaps to terrain when ready
+      else if (name === "vale") buildVale();   // async — knight snaps to terrain when ready
+      else if (name === "wilds") buildWilds(); // async — same terrain tech, bigger scale
       else buildHold();
     }
     scene.add(knight);
@@ -333,31 +339,45 @@
      slopes block movement, stairs and paths are climbable. All content
      (spawn, bonfire, stones, runes, chest) is auto-placed by scanning the
      terrain for genuinely walkable cells — no hand-tuned collision. */
-  async function buildVale() {
-    bound = 9999; // the terrain itself is the boundary
-    scene.background = new THREE.Color(0x241d2e);
-    scene.fog = new THREE.Fog(0x2a2136, 45, 230);
+  function buildVale() {
+    return buildTerrainWorld({
+      name: "vale", file: "vale.glb", size: 92,
+      bg: 0x241d2e, fogC: 0x2a2136,
+    });
+  }
+  function buildWilds() {
+    return buildTerrainWorld({
+      name: "wilds", file: "wilds.glb", size: 150, // a genuinely bigger land
+      bg: 0x1e2030, fogC: 0x232638,
+    });
+  }
 
-    /* golden-hour dusk to match the model's baked daylight */
+  async function buildTerrainWorld(cfg) {
+    const SIZE = cfg.size;
+    bound = 9999; // the terrain itself is the boundary
+    scene.background = new THREE.Color(cfg.bg);
+    scene.fog = new THREE.Fog(cfg.fogC, SIZE * 0.5, SIZE * 2.5);
+
+    /* golden-hour dusk to match baked daylight textures */
     scene.add(new THREE.HemisphereLight(0x9587b2, 0x4a3c28, 1.5));
     scene.add(new THREE.AmbientLight(0x4a4056, 1.0));
     const sun = new THREE.DirectionalLight(0xffcf94, 1.5);
-    sun.position.set(-45, 65, 35);
+    sun.position.set(-SIZE * 0.5, SIZE * 0.7, SIZE * 0.38);
     scene.add(sun);
     fireLight = new THREE.PointLight(0xff7a3c, 3.0, 40, 1.5);
     scene.add(fireLight);
-    addSky(260, 650, 9);
+    addSky(SIZE * 2.8, 650, SIZE * 0.1);
 
-    const asset = await envLoad("vale.glb");
-    if (!asset) { if (window.__toast) __toast("The Vale failed to load…"); return; }
-    if (worldName !== "vale") return; // user traveled away mid-load
+    const asset = await envLoad(cfg.file);
+    if (!asset) { if (window.__toast) __toast(WORLD_TITLES[cfg.name] + " failed to load…"); return; }
+    if (worldName !== cfg.name) return; // user traveled away mid-load
     const model = asset.scene; // single use — no clone needed
 
-    /* normalize: ~92 units wide, centered, lowest point at y=0 */
+    /* normalize: SIZE units wide, centered, lowest point at y=0 */
     const box = new THREE.Box3().setFromObject(model);
     const dim = new THREE.Vector3(); box.getSize(dim);
     const ctr = new THREE.Vector3(); box.getCenter(ctr);
-    const s = 92 / Math.max(dim.x, dim.z);
+    const s = SIZE / Math.max(dim.x, dim.z);
     model.scale.setScalar(s);
     model.position.set(-ctr.x * s, -box.min.y * s, -ctr.z * s);
     scene.add(model);
@@ -373,9 +393,10 @@
     };
 
     /* ---- walkability scan: grid of ground samples, slope-checked ---- */
+    const R = Math.ceil(SIZE / 2), G = Math.max(2, Math.round(SIZE / 46));
     const cells = [];
-    for (let gz = -45; gz <= 45; gz += 2) {
-      for (let gx = -45; gx <= 45; gx += 2) {
+    for (let gz = -R; gz <= R; gz += G) {
+      for (let gx = -R; gx <= R; gx += G) {
         const h = groundHeight(gx, gz);
         if (h === null) continue;
         const nb = [groundHeight(gx + 1, gz), groundHeight(gx - 1, gz),
@@ -384,7 +405,7 @@
         cells.push({ x: gx, z: gz, h });
       }
     }
-    if (!cells.length) { if (window.__toast) __toast("The Vale terrain has no walkable ground…"); return; }
+    if (!cells.length) { if (window.__toast) __toast("This terrain has no walkable ground…"); return; }
 
     const hs = cells.map((c) => c.h).sort((a, b) => a - b);
     const loH = hs[Math.floor(hs.length * 0.3)];
@@ -417,7 +438,7 @@
         let da = Math.atan2(dx, dz) - a0;
         da = Math.atan2(Math.sin(da), Math.cos(da));
         if (Math.abs(da) > Math.PI / rest.length) continue;
-        const score = Math.min(d, 38) + c.h * 1.5; // favor far + elevated spots
+        const score = Math.min(d, SIZE * 0.42) + c.h * 1.5; // favor far + elevated spots
         if (score > bestScore) { bestScore = score; bestC = c; }
       }
       if (!bestC) bestC = cells[(i * 37) % cells.length];
@@ -431,7 +452,7 @@
     for (const c of pool) {
       if (rspots.length >= 10) break;
       if (Math.hypot(c.x - fireC.x, c.z - fireC.z) < 5) continue;
-      if (rspots.some(([sx, sz]) => Math.hypot(sx - c.x, sz - c.z) < 9)) continue;
+      if (rspots.some(([sx, sz]) => Math.hypot(sx - c.x, sz - c.z) < SIZE * 0.1)) continue;
       rspots.push([c.x, c.z, c.h]);
     }
     addRunes(rspots);
@@ -443,12 +464,12 @@
       .then((m) => { if (m) { m.position.y += chestC.h; chestObj = m; } });
 
     addPortal(spawnC.x, spawnC.z, "hold", [15.8, 6.6], "Roundtable Hold", spawnC.h);
-    addMists(9, 26, loH + 1.2);
-    emberPts = makeEmbers(360, 46);
+    addMists(9, SIZE * 0.28, loH + 1.2);
+    emberPts = makeEmbers(360, R);
     scene.add(emberPts.points);
 
     /* drop the knight at the computed spawn, facing the fire */
-    if (worldName === "vale") {
+    if (worldName === cfg.name) {
       knight.position.set(spawnC.x, spawnC.h, spawnC.z);
       const face = Math.atan2(fireC.x - spawnC.x, fireC.z - spawnC.z);
       knight.rotation.y = face;
