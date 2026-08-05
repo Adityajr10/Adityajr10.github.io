@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Aditya Rai — Gameplay Programmer</title>
+  <meta name="description" content="Aditya Rai — Gameplay Programmer. Combat & enemy AI, custom engines, C++. Unreal Engine 5, Vulkan, PS5, VR/AR." />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700;900&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/styles.css?v=7" />
+</head>
+<body>
+
+  <!-- Scroll-through dungeon (3D corridor behind the page) -->
+  <canvas id="dungeon-canvas" aria-hidden="true"></canvas>
+
+  <!-- Sound toggle (muted by default) -->
+  <button id="sound-toggle" aria-label="Toggle sound">♪ SOUND OFF</button>
+
+  <!-- "AREA DISCOVERED" transition overlay -->
+  <div id="area-reveal" aria-hidden="true">
+    <span class="area-reveal-line"></span>
+    <span class="area-reveal-title"></span>
+    <span class="area-reveal-line"></span>
+  </div>
+
+  <!-- Boss health bar (scroll progress) -->
+  <div id="boss-bar" aria-hidden="true">
+    <span class="boss-name">ADITYA RAI</span>
+    <div class="boss-track"><div id="boss-fill"></div></div>
+  </div>
+
+  <!-- Achievement toasts -->
+  <div id="toast-stack" aria-live="polite"></div>
+
+  <!-- ===================================================== HERO -->
+  <header class="hero" id="top">
+    <canvas id="hero-canvas"></canvas>
+    <video id="hero-video" class="hero-video" muted loop playsinline autoplay
+           poster="assets/hero-poster.jpg" onerror="this.style.display='none'">
+      <source src="assets/hero-loop.mp4" type="video/mp4" />
+    </video>
+    <div class="hero-overlay"></div>
+
+    <div class="hero-inner">
+      <p class="hero-eyebrow">GAMEPLAY PROGRAMMER · 3+ YEARS · BANGALORE</p>
+      <h1 id="hero-name" class="hero-name">ADITYA RAI</h1>
+      <p id="hero-sub" class="hero-sub"></p>
+      <div id="platform-badges" class="badge-row"></div>
+      <div class="hero-cta">
+        <a href="#tlb-section" class="btn btn-primary" data-scroll>VIEW WORK</a>
+        <a href="#" id="enter-hold" class="btn btn-hold">⚔ ENTER THE HOLD</a>
+        <a href="assets/Aditya_Rai_Resume.pdf" id="resume-btn" class="btn btn-ghost" download>DOWNLOAD RESUME</a>
+      </div>
+    </div>
+    <div id="rest-hint"><span>◆ REST</span></div>
+    <div class="scroll-hint"><span>SCROLL TO ENTER</span><i></i></div>
+  </header>
+
+  <!-- ===================================================== FEATURED: THE LAST BLOOD -->
+  <section class="tlb" id="tlb-section">
+    <div class="tlb-grid">
+      <div id="tlb-pin" class="tlb-pin">
+        <div id="tlb-stage" class="tlb-stage"></div>
+        <div id="tlb-shorts" class="tlb-shorts"></div>
+      </div>
+      <div class="tlb-content">
+        <div class="tlb-head reveal">
+          <p id="tlb-kicker" class="kicker"></p>
+          <h2 id="tlb-title" class="area-title flagship"></h2>
+          <p id="tlb-tagline" class="tlb-tagline"></p>
+          <p id="tlb-meta" class="tlb-meta"></p>
+        </div>
+        <div id="tlb-systems" class="tlb-systems"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================================================== PROJECTS GRID -->
+  <section class="grid-section" id="grid-section">
+    <div class="section-head">
+      <p class="kicker">SELECTED WORK</p>
+      <h2 class="area-title">The Armory</h2>
+    </div>
+    <div id="filters" class="filters"></div>
+    <div id="project-grid" class="project-grid"></div>
+  </section>
+
+  <!-- ===================================================== TECH ARSENAL (skill web) -->
+  <section class="arsenal" id="arsenal-section" aria-label="Tech Arsenal">
+    <div class="section-head">
+      <p class="kicker">TECH ARSENAL</p>
+      <h2 class="area-title">Skill Web</h2>
+    </div>
+    <div id="skill-web"></div>
+    <div id="skill-detail" class="skill-detail" aria-live="polite"></div>
+  </section>
+
+  <!-- ===================================================== ABOUT -->
+  <section class="about" id="about-section">
+    <div class="section-head">
+      <p class="kicker">CHARACTER SHEET</p>
+      <h2 class="area-title">The Programmer</h2>
+    </div>
+    <div class="about-grid">
+      <div class="char-panel reveal">
+        <div class="char-row"><span>Class</span><b>Gameplay Programmer</b></div>
+        <div class="char-row"><span>Level</span><b>3+ Years</b></div>
+        <div class="char-row"><span>Base</span><b>Bangalore, India</b></div>
+        <div class="char-row"><span>Specialty</span><b>Combat &amp; Enemy AI</b></div>
+        <div id="stat-bars" class="stat-bars"></div>
+      </div>
+      <div id="counters" class="counters"></div>
+    </div>
+  </section>
+
+  <!-- ===================================================== TIMELINE -->
+  <section class="exp" id="exp-section">
+    <div class="section-head">
+      <p class="kicker">JOURNEY</p>
+      <h2 class="area-title">Experience</h2>
+    </div>
+    <div id="timeline" class="timeline"></div>
+  </section>
+
+  <!-- ===================================================== FOOTER -->
+  <footer class="footer" id="footer">
+    <div class="footer-inner">
+      <h2 class="area-title huge">YOUR TURN TO SUMMON</h2>
+      <div class="footer-links">
+        <a id="foot-email" class="btn btn-primary" href="#"></a>
+        <a id="foot-linkedin" class="btn btn-ghost" target="_blank" rel="noopener">LinkedIn</a>
+        <a id="foot-github" class="btn btn-ghost" target="_blank" rel="noopener">GitHub</a>
+        <a id="foot-resume" class="btn btn-ghost" download>Resume</a>
+        <a id="resume-btn-2" hidden></a>
+      </div>
+      <p class="footer-note">Built as a AAA main-menu tribute. <span id="year"></span></p>
+    </div>
+  </footer>
+
+  <!-- ===================================================== ROUNDTABLE HOLD (walkable hub) -->
+  <div id="hub" aria-hidden="true">
+    <canvas id="hub-canvas"></canvas>
+    <div class="hub-hud">
+      <button id="hub-exit" aria-label="Leave the Hold">✕ LEAVE THE HOLD</button>
+      <div id="hub-runes" aria-live="polite"></div>
+      <div id="hub-prompt"><span class="key">E</span><span id="hub-prompt-text"></span></div>
+      <div class="hub-controls">WASD — MOVE &nbsp;·&nbsp; SHIFT — SPRINT &nbsp;·&nbsp; DRAG — CAMERA &nbsp;·&nbsp; SCROLL — ZOOM &nbsp;·&nbsp; E — EXAMINE &nbsp;·&nbsp; ESC — LEAVE</div>
+    </div>
+    <div id="hub-joystick"><div class="stick"></div></div>
+    <button id="hub-interact" aria-label="Interact">E</button>
+  </div>
+
+  <!-- ===================================================== MODAL -->
+  <div id="modal" class="modal" aria-hidden="true" role="dialog" aria-modal="true">
+    <div class="modal-backdrop"></div>
+    <div class="modal-panel" data-lenis-prevent>
+      <button class="modal-close" aria-label="Back to projects"><span class="back-arrow">◀</span> BACK</button>
+      <div id="modal-body" class="modal-body"></div>
+    </div>
+  </div>
+
+  <!-- Libraries (CDN). Site degrades gracefully if any fail to load. -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/vanilla-tilt/1.8.1/vanilla-tilt.min.js"></script>
+
+  <!-- App -->
+  <script src="js/media-manifest.js?v=7"></script>
+  <script src="js/data.js?v=7"></script>
+  <script src="js/sound.js?v=7"></script>
+  <script src="js/cursor.js?v=7"></script>
+  <script src="js/skillweb.js?v=7"></script>
+  <script src="js/hero3d.js?v=7"></script>
+  <script src="js/dungeon.js?v=7"></script>
+  <script src="js/hub.js?v=7"></script>
+  <script src="js/app.js?v=7"></script>
+</body>
+</html>
