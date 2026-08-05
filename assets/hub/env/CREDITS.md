@@ -12,3 +12,7 @@ Also includes assets from these KayKit packs (all CC0 1.0, same author):
 
 vale.glb - "creek falls world maps" terrain, downloaded from Sketchfab by the site owner.
 License: per the model page on Sketchfab (check author attribution requirements there).
+
+wilds.glb - "Medieval Fantasy Book" by Pixel (https://sketchfab.com/Pixel_bear),
+https://sketchfab.com/3d-models/medieval-fantasy-book-06d5a80a04fc4c5ab552759e9a97d91a
+License: CC Attribution (CC-BY 4.0). Credit: "Medieval Fantasy Book" by Pixel, licensed under CC-BY.

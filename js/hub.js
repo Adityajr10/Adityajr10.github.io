@@ -349,6 +349,7 @@
     return buildTerrainWorld({
       name: "wilds", file: "wilds.glb", size: 150, // a genuinely bigger land
       bg: 0x1e2030, fogC: 0x232638,
+      minHFrac: 0.1, // the world sits on an open book — keep placements off the bare pages
     });
   }
 
@@ -394,7 +395,7 @@
 
     /* ---- walkability scan: grid of ground samples, slope-checked ---- */
     const R = Math.ceil(SIZE / 2), G = Math.max(2, Math.round(SIZE / 46));
-    const cells = [];
+    let cells = [];
     for (let gz = -R; gz <= R; gz += G) {
       for (let gx = -R; gx <= R; gx += G) {
         const h = groundHeight(gx, gz);
@@ -404,6 +405,14 @@
         if (nb.some((v) => v === null || Math.abs(v - h) > 0.55)) continue;
         cells.push({ x: gx, z: gz, h });
       }
+    }
+    if (cfg.minHFrac && cells.length) {
+      // exclude the flat base plane (e.g. book pages) below a height fraction
+      const min = Math.min(...cells.map((c) => c.h));
+      const max = Math.max(...cells.map((c) => c.h));
+      const cut = min + (max - min) * cfg.minHFrac;
+      const above = cells.filter((c) => c.h > cut);
+      if (above.length > 20) cells = above;
     }
     if (!cells.length) { if (window.__toast) __toast("This terrain has no walkable ground…"); return; }
 
