@@ -15,6 +15,22 @@
   }
   init2D();
 
+  /* soft round sprite so particles don't render as squares */
+  var dotTex = null; // var: hoisted — softDot() runs before this line executes
+  function softDot() {
+    const THREE = window.THREE;
+    if (dotTex) return dotTex;
+    const c = document.createElement("canvas"); c.width = c.height = 64;
+    const x = c.getContext("2d");
+    const g = x.createRadialGradient(32, 32, 2, 32, 32, 32);
+    g.addColorStop(0, "rgba(255,255,255,1)");
+    g.addColorStop(0.4, "rgba(255,255,255,0.55)");
+    g.addColorStop(1, "rgba(255,255,255,0)");
+    x.fillStyle = g; x.fillRect(0, 0, 64, 64);
+    dotTex = new THREE.CanvasTexture(c);
+    return dotTex;
+  }
+
   /* ================================================================ BONFIRE */
   function initBonfire() {
     const THREE = window.THREE;
@@ -182,8 +198,8 @@
       const geo = new THREE.BufferGeometry();
       geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
       const mat = new THREE.PointsMaterial({
-        color: cfg.color, size: cfg.size * 0.01, transparent: true,
-        opacity: cfg.alpha ?? 0.85, depthWrite: false,
+        map: softDot(), color: cfg.color, size: cfg.size * 0.013, transparent: true,
+        opacity: cfg.alpha ?? 0.9, depthWrite: false,
         blending: cfg.normalBlend ? THREE.NormalBlending : THREE.AdditiveBlending,
         sizeAttenuation: true,
       });

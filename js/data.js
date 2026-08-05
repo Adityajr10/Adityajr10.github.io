@@ -298,9 +298,9 @@ window.PORTFOLIO = {
   ],
   counters: [
     { value: 50000, suffix: "+", label: "Lines of C++ (golf automation)" },
-    { value: 40000, suffix: "+", label: "Procedurally generated courses" },
+    { value: 6, suffix: "+", label: "Unique skills per boss — The Last Blood" },
     { value: 6, suffix: "", label: "Platforms shipped on" },
-    { value: 14, suffix: "", label: "State combat machine" },
+    { value: 2, suffix: "", label: "Shipped games" },
     { value: 15, suffix: "+", label: "Abilities (data-driven)" },
     { value: 30, suffix: "", label: "Person team standards adopted" },
   ],

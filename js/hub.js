@@ -29,7 +29,27 @@
 
   const keys = {};
   const joy = { active: false, x: 0, y: 0 };
-  const BOUND = 22.5;
+  let bound = 22.5;                   // walkable radius of the current world
+  let worlds = {};                    // world name -> saved scene state
+  let worldName = "";
+  let portals = [];                   // travel gates in the current world
+  let extras = [];                    // animated world objects (skeletons, ...)
+  let hintShown = false;
+
+  /* soft round particle sprite (fixes square-looking fire) */
+  let dotTexCache = null;
+  function softDotTexture() {
+    if (dotTexCache) return dotTexCache;
+    const c = document.createElement("canvas"); c.width = c.height = 64;
+    const x = c.getContext("2d");
+    const g = x.createRadialGradient(32, 32, 2, 32, 32, 32);
+    g.addColorStop(0, "rgba(255,255,255,1)");
+    g.addColorStop(0.4, "rgba(255,255,255,0.55)");
+    g.addColorStop(1, "rgba(255,255,255,0)");
+    x.fillStyle = g; x.fillRect(0, 0, 64, 64);
+    dotTexCache = new THREE.CanvasTexture(c);
+    return dotTexCache;
+  }
 
   window.Hub = { enter, exit };
   window.Hub.tick = (now) => loop(now || performance.now()); // manual step (testing/headless)
@@ -57,11 +77,10 @@
     if (window.__lenis) window.__lenis.stop();
     if (window.SFX) SFX.play("rest");
     if (window.__toast) __toast("New Area — Roundtable Hold");
-    const reveal = document.getElementById("area-reveal");
-    if (reveal) {
-      reveal.querySelector(".area-reveal-title").textContent = "Roundtable Hold";
-      reveal.classList.remove("show"); void reveal.offsetWidth; reveal.classList.add("show");
-      setTimeout(() => reveal.classList.remove("show"), 2000);
+    showReveal(worldName === "battlefield" ? "The Ashen Battlefield" : "Roundtable Hold");
+    if (!hintShown) {
+      hintShown = true;
+      setTimeout(() => { if (active && window.__toast) __toast("A golden gate shimmers by the eastern wall…"); }, 7000);
     }
     resize();
     last = performance.now();
@@ -85,14 +104,62 @@
     renderer = new THREE.WebGLRenderer({ canvas: canvas(), antialias: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
     renderer.outputEncoding = THREE.sRGBEncoding; // KayKit assets author in sRGB
+    camera = new THREE.PerspectiveCamera(55, 1, 0.1, 340);
+    buildKnight();
+    tryLoadGLB(); // player model — world-independent
+    wireInput();
+    window.addEventListener("resize", resize);
+    enterWorld("hold", [0, 6.5]);
+  }
 
-    scene = new THREE.Scene();
+  /* ======================================================= WORLD MANAGEMENT */
+  function saveWorld() {
+    if (!scene) return;
+    worlds[worldName] = {
+      scene, colliders, stones, torchLights, runes, runesGot,
+      chestObj, chestOpened, mists, portals, extras, fireLight, firePts, emberPts, bound,
+    };
+  }
+
+  function enterWorld(name, spawn) {
+    saveWorld();
+    nearTarget = null;
+    worldName = name;
+    const w = worlds[name];
+    if (w) {
+      ({ scene, colliders, stones, torchLights, runes, runesGot,
+         chestObj, chestOpened, mists, portals, extras, fireLight, firePts, emberPts, bound } = w);
+    } else {
+      scene = new THREE.Scene();
+      colliders = []; stones = []; torchLights = []; runes = []; runesGot = 0;
+      chestObj = null; chestOpened = false; mists = []; portals = []; extras = [];
+      fireLight = null; firePts = null; emberPts = null;
+      if (name === "battlefield") buildBattlefield(); else buildHold();
+    }
+    scene.add(knight);
+    knight.position.set(spawn[0], 0, spawn[1]);
+    const face = Math.atan2(-spawn[0], -spawn[1]);
+    knight.rotation.y = face;
+    camYaw = face;
+    vel.x = vel.z = 0;
+    updatePrompt();
+    updateRunesHUD();
+  }
+
+  function showReveal(title) {
+    const reveal = document.getElementById("area-reveal");
+    if (!reveal) return;
+    reveal.querySelector(".area-reveal-title").textContent = title;
+    reveal.classList.remove("show"); void reveal.offsetWidth; reveal.classList.add("show");
+    setTimeout(() => reveal.classList.remove("show"), 2000);
+  }
+
+  /* ============================================== WORLD 1: ROUNDTABLE HOLD */
+  function buildHold() {
+    bound = 22.5;
     scene.background = new THREE.Color(0x0b0a12);
-    scene.fog = new THREE.Fog(0x0d0b14, 20, 78);
+    scene.fog = new THREE.Fog(0x0d0b14, 20, 96);
 
-    camera = new THREE.PerspectiveCamera(55, 1, 0.1, 220);
-
-    /* ---- lights: night sky glow + moon + firelight ---- */
     scene.add(new THREE.HemisphereLight(0x4a4468, 0x2a1c12, 1.15));
     scene.add(new THREE.AmbientLight(0x241f2c, 0.9));
     const moon = new THREE.DirectionalLight(0x8493c8, 0.85);
@@ -102,35 +169,11 @@
     fireLight.position.set(0, 1.0, 0);
     scene.add(fireLight);
 
-    /* ---- night sky: star dome + moon disc ---- */
-    const starN = 500, starPos = new Float32Array(starN * 3);
-    for (let i = 0; i < starN; i++) {
-      const th = Math.random() * Math.PI * 2, ph = Math.acos(Math.random() * 0.85); // upper dome
-      const R = 150;
-      starPos[i * 3] = R * Math.sin(ph) * Math.cos(th);
-      starPos[i * 3 + 1] = R * Math.cos(ph) + 2;
-      starPos[i * 3 + 2] = R * Math.sin(ph) * Math.sin(th);
-    }
-    const starGeo = new THREE.BufferGeometry();
-    starGeo.setAttribute("position", new THREE.BufferAttribute(starPos, 3));
-    scene.add(new THREE.Points(starGeo, new THREE.PointsMaterial({
-      color: 0xd8dcf0, size: 0.55, transparent: true, opacity: 0.85, sizeAttenuation: true, fog: false,
-    })));
-    const moonDisc = new THREE.Mesh(new THREE.CircleGeometry(7, 32),
-      new THREE.MeshBasicMaterial({ color: 0xcfd6ee, fog: false }));
-    moonDisc.position.set(-70, 78, -95);
-    moonDisc.lookAt(0, 0, 0);
-    scene.add(moonDisc);
-    const moonGlow = new THREE.Mesh(new THREE.CircleGeometry(13, 32),
-      new THREE.MeshBasicMaterial({ color: 0x8b96c8, transparent: true, opacity: 0.22, fog: false }));
-    moonGlow.position.copy(moonDisc.position);
-    moonGlow.lookAt(0, 0, 0);
-    moonGlow.translateZ(-0.5);
-    scene.add(moonGlow);
+    addSky(150, 500, 7);
 
-    /* ---- ground: procedurally-tiled stone disc + gold rune rings ---- */
+    /* ground: stone tiles + gold rune rings */
     const ground = new THREE.Mesh(
-      new THREE.CircleGeometry(BOUND + 6, 56),
+      new THREE.CircleGeometry(bound + 6, 56),
       new THREE.MeshLambertMaterial({ map: makeStoneTexture(), color: 0xbdb6c4 })
     );
     ground.rotation.x = -Math.PI / 2;
@@ -145,18 +188,261 @@
       scene.add(ring);
     }
 
-    buildEnvironment(); // KayKit medieval walls, torches, banners, props (async)
+    buildEnvironment(); // walls, shrines, graveyard, camp, mist, runes
     buildBonfire();
-    buildStones();
-    buildKnight();
-    tryLoadGLB();
+    buildStones({ flagship: [0, -6.4], r1: 11, r2: 16.5 });
 
-    /* ---- ambient embers across the hold ---- */
-    emberPts = makeEmbers(240, BOUND + 2);
+    emberPts = makeEmbers(240, bound + 2);
     scene.add(emberPts.points);
 
-    wireInput();
-    window.addEventListener("resize", resize);
+    /* mountain silhouettes beyond the walls — the world no longer ends there */
+    const MT = ["mountain_A.gltf", "mountain_B.gltf", "mountain_C.gltf"];
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * Math.PI * 2 + 0.45;
+      envPlace(MT[i % 3], Math.cos(a) * 58, Math.sin(a) * 58, a + 2, 34);
+    }
+
+    /* the user-supplied statue */
+    if (THREE.GLTFLoader) {
+      const sc = scene, cols = colliders;
+      new THREE.GLTFLoader().load("assets/hub/statue.glb", (gltf) => {
+        const model = gltf.scene;
+        const box = new THREE.Box3().setFromObject(model);
+        const h = box.max.y - box.min.y || 1;
+        const s = 3.2 / h;
+        model.scale.setScalar(s);
+        model.position.set(4.5, -box.min.y * s, -4.5);
+        sc.add(model);
+        cols.push({ x: 4.5, z: -4.5, r: 1.4 });
+      }, undefined, () => {});
+    }
+
+    /* travel gate to the battlefield — eastern wall, in the gap between stones */
+    addPortal(18.3, 7.6, "battlefield", [0, 32], "The Ashen Battlefield");
+  }
+
+  /* shared night sky: star dome + moon */
+  function addSky(radius, starCount, moonSize) {
+    const starPos = new Float32Array(starCount * 3);
+    for (let i = 0; i < starCount; i++) {
+      const th = Math.random() * Math.PI * 2, ph = Math.acos(Math.random() * 0.85);
+      starPos[i * 3] = radius * Math.sin(ph) * Math.cos(th);
+      starPos[i * 3 + 1] = radius * Math.cos(ph) + 2;
+      starPos[i * 3 + 2] = radius * Math.sin(ph) * Math.sin(th);
+    }
+    const starGeo = new THREE.BufferGeometry();
+    starGeo.setAttribute("position", new THREE.BufferAttribute(starPos, 3));
+    scene.add(new THREE.Points(starGeo, new THREE.PointsMaterial({
+      map: softDotTexture(), color: 0xd8dcf0, size: radius * 0.004, transparent: true,
+      opacity: 0.85, sizeAttenuation: true, fog: false, depthWrite: false,
+    })));
+    const mx = -radius * 0.47, my = radius * 0.52, mz = -radius * 0.63;
+    const moonDisc = new THREE.Mesh(new THREE.CircleGeometry(moonSize, 32),
+      new THREE.MeshBasicMaterial({ color: 0xcfd6ee, fog: false }));
+    moonDisc.position.set(mx, my, mz);
+    moonDisc.lookAt(0, 0, 0);
+    scene.add(moonDisc);
+    const moonGlow = new THREE.Mesh(new THREE.CircleGeometry(moonSize * 1.85, 32),
+      new THREE.MeshBasicMaterial({ color: 0x8b96c8, transparent: true, opacity: 0.22, fog: false }));
+    moonGlow.position.set(mx, my, mz);
+    moonGlow.lookAt(0, 0, 0);
+    moonGlow.translateZ(-0.5);
+    scene.add(moonGlow);
+  }
+
+  /* golden travel portal + arch */
+  let portalTexCache = null;
+  function portalTexture() {
+    if (portalTexCache) return portalTexCache;
+    const c = document.createElement("canvas"); c.width = c.height = 256;
+    const x = c.getContext("2d");
+    const g = x.createRadialGradient(128, 128, 8, 128, 128, 128);
+    g.addColorStop(0, "rgba(255,220,150,0.95)");
+    g.addColorStop(0.45, "rgba(255,150,60,0.4)");
+    g.addColorStop(1, "rgba(255,120,40,0)");
+    x.fillStyle = g; x.fillRect(0, 0, 256, 256);
+    portalTexCache = new THREE.CanvasTexture(c);
+    return portalTexCache;
+  }
+  function addPortal(x, z, dest, spawn, title) {
+    const sc = scene;
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2.5, 3.4), new THREE.MeshBasicMaterial({
+      map: portalTexture(), transparent: true, opacity: 0.75, side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending, depthWrite: false,
+    }));
+    mesh.position.set(x, 1.9, z);
+    mesh.lookAt(0, 1.9, 0);
+    sc.add(mesh);
+    const light = new THREE.PointLight(0xffb86b, 1.4, 12, 2);
+    light.position.set(x, 2.2, z);
+    sc.add(light);
+    const rr = Math.hypot(x, z) || 1;
+    envPlace("arch_gate.gltf", x * ((rr + 1.3) / rr), z * ((rr + 1.3) / rr), Math.atan2(-x, -z), 4.4);
+    portals.push({ x, z, dest, spawn, title, mesh, light });
+  }
+
+  /* ======================================== WORLD 2: THE ASHEN BATTLEFIELD */
+  function buildBattlefield() {
+    bound = 38;
+    scene.background = new THREE.Color(0x0a0910);
+    scene.fog = new THREE.Fog(0x0c0a12, 30, 165);
+
+    scene.add(new THREE.HemisphereLight(0x504a6e, 0x2c1c10, 1.25));
+    scene.add(new THREE.AmbientLight(0x262032, 0.95));
+    const moon = new THREE.DirectionalLight(0x8a97cc, 1.0);
+    moon.position.set(26, 44, -22);
+    scene.add(moon);
+    fireLight = new THREE.PointLight(0xff7a3c, 3.0, 42, 1.5);
+    fireLight.position.set(0, 1.0, 0);
+    scene.add(fireLight);
+
+    addSky(240, 800, 12);
+
+    /* scorched-earth ground */
+    const ground = new THREE.Mesh(
+      new THREE.CircleGeometry(bound + 40, 64),
+      new THREE.MeshLambertMaterial({ map: makeScorchedTexture(), color: 0xb8afa6 })
+    );
+    ground.rotation.x = -Math.PI / 2;
+    scene.add(ground);
+
+    buildBonfire(); // the war pyre
+    buildStones({ flagship: [0, -15], r1: 19, r2: 28 });
+
+    /* ---- the red castle looms north ---- */
+    envPlace("building_castle_red.gltf", 0, -34, 0, 22, 8);
+    envPlace("building_tower_A_red.gltf", -14, -30, 0.15, 7.5, 2.4);
+    envPlace("building_tower_B_red.gltf", 14, -30, -0.15, 7.5, 2.4);
+    envPlace("wall_straight.gltf", -8, -27.5, 0, 9, 3.2);
+    envPlace("wall_straight.gltf", 8, -27.5, 0, 9, 3.2);
+    envPlace("wall_straight_gate.gltf", 0, -27.5, 0, 8);
+    envPlace("flag_red.gltf", -3.6, -24.8, 0.3, 1.5);
+    envPlace("flag_red.gltf", 3.6, -24.8, -0.3, 1.5);
+
+    /* ---- village ruins east and west ---- */
+    envPlace("building_destroyed.gltf", 25, 11, -0.9, 9, 3.4);
+    envPlace("building_home_A_red.gltf", 29, 3, -1.2, 6, 2.4);
+    envPlace("building_church_red.gltf", 27, -9, -1.4, 10, 3.4);
+    envPlace("building_destroyed.gltf", -26, 7, 1.1, 8, 3.2);
+    envPlace("building_home_B_red.gltf", -29, -3, 1.4, 6, 2.4);
+    envPlace("building_barracks_red.gltf", -24, 13, 0.9, 7.5, 2.8);
+
+    /* ---- horizon: mountain ring + wooded hills (the world feels vast) ---- */
+    const MT = ["mountain_A.gltf", "mountain_B.gltf", "mountain_C.gltf"];
+    for (let i = 0; i < 9; i++) {
+      const a = (i / 9) * Math.PI * 2 + 0.2;
+      envPlace(MT[i % 3], Math.cos(a) * 105, Math.sin(a) * 105, a + 1.2, 60);
+    }
+    for (let i = 0; i < 5; i++) {
+      const a = (i / 5) * Math.PI * 2 + 0.85;
+      envPlace("hills_A_trees.gltf", Math.cos(a) * 66, Math.sin(a) * 66, a, 30);
+    }
+
+    /* ---- trees + rocks scattered inside ---- */
+    const veg = [
+      ["trees_A_large.gltf", -16, -20, 7, 1.4], ["trees_B_medium.gltf", 20, 20, 5.5, 1.2],
+      ["trees_A_large.gltf", 30, -18, 7, 1.4], ["tree_single_A.gltf", -12, 22, 4, 0.7],
+      ["trees_B_medium.gltf", -31, 14, 5.5, 1.2], ["tree_single_A.gltf", 11, 30, 4.5, 0.7],
+      ["rock_single_A.gltf", 7, 21, 2.2, 1.0], ["rock_single_B.gltf", -19, 3, 2.4, 1.1],
+      ["rock_single_C.gltf", 15, -12, 2.0, 0.9], ["rock_single_A.gltf", -8, 27, 2.6, 1.2],
+    ];
+    for (const [n, x, z, s, c] of veg) envPlace(n, x, z, Math.random() * 6.28, s, c);
+
+    /* ---- battlefield litter: planted swords, flags, supplies ---- */
+    for (let i = 0; i < 10; i++) {
+      const a = Math.random() * Math.PI * 2, r = 6 + Math.random() * 16;
+      envPlace(i % 3 ? "sword_shield.glb" : "sword_shield_gold.glb",
+        Math.cos(a) * r, Math.sin(a) * r, Math.random() * 6.28, 1.15)
+        .then((m) => { if (m) { m.rotation.z = (Math.random() - 0.5) * 0.5; m.rotation.x = (Math.random() - 0.5) * 0.3; } });
+    }
+    envPlace("bucket_arrows.gltf", 4.5, -23, 0.4, 1.1, 0.5);
+    envPlace("crate_A_big.gltf", -4.8, -22.6, 0.9, 1.6, 0.9);
+    envPlace("rubble_large", 10, 8, 1.2, 2.0, 1.1);
+    envPlace("rubble_large", -13, -10, 2.4, 1.7, 1.0);
+    envPlace("chest_gold.glb", 23, 15, -2.2, 1.5, 0.9).then((m) => { chestObj = m; });
+    envPlace("coin_stack.glb", 21.8, 16.2, 0, 0.5);
+
+    /* ---- fallen legion: animated skeletons that collapse when you charge them ---- */
+    const SK = ["Skeleton_Warrior.glb", "Skeleton_Minion.glb", "Skeleton_Rogue.glb", "Skeleton_Mage.glb"];
+    const skSpots = [[5, -8], [-9, -4], [12, 4], [-15, 10], [8, 15], [-6, 19], [17, -9], [-19, -12]];
+    skSpots.forEach(([x, z], i) => {
+      envPlace(SK[i % 4], x, z, Math.random() * 6.28, 1.65, 0.5, true).then((m) => {
+        if (!m) return;
+        const ex = { type: "skeleton", obj: m, x, z, falling: false, fallen: 0 };
+        const anims = m.userData.animations || [];
+        if (anims.length) {
+          const idle = anims.find((a) => /idle/i.test(a.name)) || anims[0];
+          ex.mixer = new THREE.AnimationMixer(m);
+          ex.mixer.clipAction(idle).play();
+        }
+        extras.push(ex);
+      });
+    });
+
+    addRunes([[6, -19], [-14, -18], [22, -2], [-23, 2], [16, 24],
+              [-17, 24], [31, 8], [-32, -8], [3, 33], [-4, -25]]);
+    addMists(11, 26);
+    emberPts = makeEmbers(420, bound + 4);
+    scene.add(emberPts.points);
+
+    /* return gate, south — where you arrive */
+    addPortal(0, 35.2, "hold", [15.8, 6.6], "Roundtable Hold");
+  }
+
+  /* scorched battlefield ground texture */
+  function makeScorchedTexture() {
+    const c = document.createElement("canvas");
+    c.width = c.height = 1024;
+    const x = c.getContext("2d");
+    x.fillStyle = "#181310"; x.fillRect(0, 0, 1024, 1024);
+    for (let i = 0; i < 260; i++) { // earth mottling
+      const g = 18 + Math.floor(Math.random() * 16);
+      x.fillStyle = `rgba(${g + 8},${g},${g - 4},0.5)`;
+      x.beginPath();
+      x.ellipse(Math.random() * 1024, Math.random() * 1024, 20 + Math.random() * 70, 12 + Math.random() * 40, Math.random() * 3, 0, 7);
+      x.fill();
+    }
+    for (let i = 0; i < 26; i++) { // ash-grey scorch patches
+      x.fillStyle = "rgba(60,58,62,0.25)";
+      x.beginPath();
+      x.ellipse(Math.random() * 1024, Math.random() * 1024, 26 + Math.random() * 60, 18 + Math.random() * 40, Math.random() * 3, 0, 7);
+      x.fill();
+    }
+    for (let i = 0; i < 12; i++) { // dried blood stains
+      x.fillStyle = "rgba(80,16,10,0.18)";
+      x.beginPath();
+      x.ellipse(Math.random() * 1024, Math.random() * 1024, 14 + Math.random() * 30, 10 + Math.random() * 22, Math.random() * 3, 0, 7);
+      x.fill();
+    }
+    const tex = new THREE.CanvasTexture(c);
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+    tex.repeat.set(6, 6);
+    return tex;
+  }
+
+  /* drifting ground mist for the current world */
+  let mistTexCache = null;
+  function addMists(count, spread) {
+    if (!mistTexCache) {
+      const c = document.createElement("canvas"); c.width = c.height = 256;
+      const x = c.getContext("2d");
+      const g = x.createRadialGradient(128, 128, 10, 128, 128, 128);
+      g.addColorStop(0, "rgba(200,205,230,0.55)");
+      g.addColorStop(1, "rgba(200,205,230,0)");
+      x.fillStyle = g; x.fillRect(0, 0, 256, 256);
+      mistTexCache = new THREE.CanvasTexture(c);
+    }
+    for (let i = 0; i < count; i++) {
+      const sp = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: mistTexCache, transparent: true, opacity: 0.10, depthWrite: false,
+      }));
+      const a = (i / count) * Math.PI * 2;
+      const r = spread * (0.35 + (i % 3) * 0.3);
+      sp.position.set(Math.cos(a) * r, 0.8, Math.sin(a) * r);
+      sp.scale.set(14 + (i % 3) * 5, 4.8, 1);
+      scene.add(sp);
+      mists.push({ sp, ph: i * 1.9 });
+    }
   }
 
   /* ---- procedural stone-tile ground texture ---- */
@@ -199,24 +485,32 @@
     if (!envLoader) envLoader = new THREE.GLTFLoader();
     const file = name.includes(".") ? name : name + ".glb"; // .gltf assets keep their extension
     return envCache[name] || (envCache[name] = new Promise((res) =>
-      envLoader.load("assets/hub/env/" + file, (g) => res(g.scene), undefined, () => res(null))));
+      envLoader.load("assets/hub/env/" + file,
+        (g) => res({ scene: g.scene, animations: g.animations || [] }),
+        undefined, () => res(null))));
   }
 
-  // envPlace(): clone a loaded model, scale so its largest XZ side = `size`,
-  // drop it on the floor at (x,z) facing `ry`, optionally add a collider.
-  async function envPlace(name, x, z, ry, size, colR) {
-    const src = await envLoad(name);
-    if (!src) return null;
-    const m = src.clone(true);
+  // envPlace(): clone a loaded model, scale so its largest XZ side = `size`
+  // (or its height if byHeight), drop it on the floor at (x,z) facing `ry`.
+  async function envPlace(name, x, z, ry, size, colR, byHeight) {
+    const sc = scene, cols = colliders; // capture — async load may finish after a world switch
+    const asset = await envLoad(name);
+    if (!asset) return null;
+    let skinned = false;
+    asset.scene.traverse((o) => { if (o.isSkinnedMesh) skinned = true; });
+    const m = (skinned && THREE.SkeletonUtils)
+      ? THREE.SkeletonUtils.clone(asset.scene)
+      : asset.scene.clone(true);
     const box = new THREE.Box3().setFromObject(m);
     const dim = new THREE.Vector3(); box.getSize(dim);
-    const s = size / Math.max(dim.x, dim.z, 0.001);
+    const s = size / Math.max(byHeight ? dim.y : Math.max(dim.x, dim.z), 0.001);
     m.scale.setScalar(s);
     const box2 = new THREE.Box3().setFromObject(m);
     m.position.set(x, -box2.min.y, z);
     m.rotation.y = ry;
-    scene.add(m);
-    if (colR) colliders.push({ x, z, r: colR });
+    m.userData.animations = asset.animations;
+    sc.add(m);
+    if (colR) cols.push({ x, z, r: colR });
     return m;
   }
 
@@ -225,7 +519,7 @@
     if (!THREE.GLTFLoader) return;
 
     /* -- fortress wall ring: 20 segments, varied, facing inward -- */
-    const WR = BOUND + 2.2;
+    const WR = bound + 2.2;
     const segN = 20;
     const chord = 2 * WR * Math.sin(Math.PI / segN) * 1.04;
     const pattern = ["wall", "wall", "wall_cracked", "wall", "wall_window", "wall", "wall_broken", "wall", "wall_arched", "wall_cracked"];
@@ -362,15 +656,22 @@
       [4, -12], [-11, -3], [14, 3], [-6, 14], [18, -4],
       [-16, -12], [9, 16], [-19, 1], [2, 19], [-13, 12],
     ];
-    envLoad("coin").then((src) => {
-      if (!src) return;
-      runeSpots.forEach(([x, z], i) => {
+    addRunes(runeSpots);
+  }
+
+  /* collectible rune coins — usable by any world */
+  function addRunes(spots) {
+    const sc = scene, rn = runes; // capture for the async load
+    envLoad("coin").then((asset) => {
+      if (!asset) return;
+      const src = asset.scene;
+      spots.forEach(([x, z], i) => {
         const m = src.clone(true);
         m.scale.setScalar(2.2);
         m.position.set(x, 1.0, z);
         m.traverse((o) => { if (o.isMesh) { o.material = o.material.clone(); o.material.emissive = new THREE.Color(0xc98a20); o.material.emissiveIntensity = 0.6; } });
-        scene.add(m);
-        runes.push({ m, x, z, got: false, ph: i * 1.3 });
+        sc.add(m);
+        rn.push({ m, x, z, got: false, ph: i * 1.3 });
       });
       updateRunesHUD();
     });
@@ -420,8 +721,7 @@
   }
 
   /* ---- one gravestone per project, rings around the fire ---- */
-  function buildStones() {
-    const THREE = window.THREE;
+  function buildStones(cfg) {
     const P = window.PORTFOLIO;
     const list = [
       { slug: P.featured.slug, title: P.featured.title, flagship: true },
@@ -429,14 +729,14 @@
     ];
     const ring1 = list.slice(1, 9), ring2 = list.slice(9);
 
-    placeStone(list[0], 0, -6.4); // flagship: front-and-center, north of the fire
+    placeStone(list[0], cfg.flagship[0], cfg.flagship[1]); // flagship front-and-center
     ring1.forEach((p, i) => {
       const a = Math.PI * 2 * (i / ring1.length) + Math.PI / ring1.length;
-      placeStone(p, Math.sin(a) * 11, Math.cos(a) * 11);
+      placeStone(p, Math.sin(a) * cfg.r1, Math.cos(a) * cfg.r1);
     });
     ring2.forEach((p, i) => {
       const a = Math.PI * 2 * (i / ring2.length);
-      placeStone(p, Math.sin(a) * 16.5, Math.cos(a) * 16.5);
+      placeStone(p, Math.sin(a) * cfg.r2, Math.cos(a) * cfg.r2);
     });
   }
 
@@ -578,9 +878,7 @@
     mesh.add(torso, belt, helm, plume, legL, legR, armL, armR, backSword, cape);
     mesh.userData = { legL, legR, armL, armR, cape };
     knight.add(mesh);
-    knight.position.set(0, 0, 6.5); // spawn south of the bonfire
-    knight.rotation.y = Math.PI;    // facing the fire
-    scene.add(knight);
+    // added to the active scene by enterWorld()
   }
 
   /* ---- optional real game assets ---- */
@@ -608,17 +906,7 @@
       glb.knight = `loaded (${gltf.animations ? gltf.animations.length : 0} anims, height ${h.toFixed(2)}, ` +
         (mixer ? "clip playing" : rig ? "proc rig: " + Object.keys(rig.bones).join("+") : "no bones, body motion only") + ")";
     }, undefined, (err) => { glb.knight = "failed: " + (err && err.message ? err.message : "parse error"); });
-    loader.load("assets/hub/statue.glb", (gltf) => {
-      const model = gltf.scene;
-      const box = new THREE.Box3().setFromObject(model);
-      const h = box.max.y - box.min.y || 1;
-      const s = 3.2 / h;
-      model.scale.setScalar(s);
-      model.position.set(4.5, -box.min.y * s, -4.5);
-      scene.add(model);
-      colliders.push({ x: 4.5, z: -4.5, r: 1.4 });
-      glb.statue = `loaded (height ${h.toFixed(2)})`;
-    }, undefined, (err) => { glb.statue = "failed: " + (err && err.message ? err.message : "parse error"); });
+    glb.statue = "moved to buildHold";
   }
 
   /* ---- procedural rig: find limb bones by name (UE5 / Mixamo / Blender) ---- */
@@ -669,7 +957,7 @@
     const geo = new THREE.BufferGeometry();
     geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
     const points = new THREE.Points(geo, new THREE.PointsMaterial({
-      color: 0xff8a3c, size: 0.3, transparent: true, opacity: 0.85,
+      map: softDotTexture(), color: 0xff8a3c, size: 0.42, transparent: true, opacity: 0.9,
       depthWrite: false, blending: THREE.AdditiveBlending,
     }));
     return { points, pos, meta, geo };
@@ -690,7 +978,7 @@
     const geo = new THREE.BufferGeometry();
     geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
     const points = new THREE.Points(geo, new THREE.PointsMaterial({
-      color: 0xff6b35, size: 0.07, transparent: true, opacity: 0.65,
+      map: softDotTexture(), color: 0xff6b35, size: 0.1, transparent: true, opacity: 0.7,
       depthWrite: false, blending: THREE.AdditiveBlending,
     }));
     return { points, pos, geo, n: count };
@@ -803,6 +1091,15 @@
       updatePrompt();
       return;
     }
+    if (nearTarget.portal) {
+      const { dest, spawn } = nearTarget;
+      const title = dest === "battlefield" ? "The Ashen Battlefield" : "Roundtable Hold";
+      if (window.SFX) SFX.play("rest");
+      showReveal(title);
+      enterWorld(dest, spawn);
+      if (window.__toast) __toast("New Area — " + title);
+      return;
+    }
     if (window.SFX) SFX.play("confirm");
     if (window.__openProject) __openProject(nearTarget.slug);
   }
@@ -842,9 +1139,9 @@
 
     // bounds + colliders
     const kr = Math.hypot(knight.position.x, knight.position.z);
-    if (kr > BOUND) {
-      knight.position.x *= BOUND / kr;
-      knight.position.z *= BOUND / kr;
+    if (kr > bound) {
+      knight.position.x *= bound / kr;
+      knight.position.z *= bound / kr;
     }
     for (const c of colliders) {
       const dx = knight.position.x - c.x, dz = knight.position.z - c.z;
@@ -928,12 +1225,18 @@
       if (d < bestD) { bestD = d; best = s; }
     }
     if (chestObj && !chestOpened && !best) {
-      const d = Math.hypot(knight.position.x + 8.2, knight.position.z - 7.6);
+      const d = Math.hypot(knight.position.x - chestObj.position.x, knight.position.z - chestObj.position.z);
       if (d < 2.6) best = { chest: true, title: "Open the Chest" };
+    }
+    if (!best) {
+      for (const p of portals) {
+        const d = Math.hypot(knight.position.x - p.x, knight.position.z - p.z);
+        if (d < 3.0) { best = { portal: true, dest: p.dest, spawn: p.spawn, title: "Travel — " + p.title }; break; }
+      }
     }
     const fireD = Math.hypot(knight.position.x, knight.position.z);
     if (fireD < 3.0 && !best) best = { bonfire: true, title: "Rest at the Bonfire" };
-    const keyOf = (o) => o ? (o.slug || (o.bonfire && "bonfire") || (o.chest && "chest")) : null;
+    const keyOf = (o) => o ? (o.slug || (o.bonfire && "bonfire") || (o.chest && "chest") || (o.portal && "portal:" + o.dest)) : null;
     if (keyOf(best) !== keyOf(nearTarget)) {
       nearTarget = best;
       if (best && window.SFX) SFX.play("tick");
@@ -963,6 +1266,31 @@
       ms.sp.material.opacity = 0.08 + Math.sin(t * 0.4 + ms.ph) * 0.035;
     }
 
+    /* -- portals shimmer -- */
+    for (const p of portals) {
+      p.mesh.scale.setScalar(1 + Math.sin(t * 2.3) * 0.06);
+      p.mesh.material.opacity = 0.6 + Math.sin(t * 3.1) * 0.18;
+      p.light.intensity = 1.2 + Math.sin(t * 5.7) * 0.35;
+    }
+
+    /* -- skeletons: idle animation; collapse when charged into -- */
+    for (const ex of extras) {
+      if (ex.type !== "skeleton") continue;
+      if (!ex.falling) {
+        if (ex.mixer) ex.mixer.update(dt);
+        const d = Math.hypot(knight.position.x - ex.x, knight.position.z - ex.z);
+        if (d < 1.25 && speed > 2.2) {
+          ex.falling = true;
+          ex.obj.rotation.y = Math.atan2(ex.x - knight.position.x, ex.z - knight.position.z); // fall away
+          if (window.SFX) SFX.play("step");
+        }
+      } else if (ex.fallen < 1) {
+        ex.fallen = Math.min(1, ex.fallen + dt * 2.6);
+        const e = 1 - Math.pow(1 - ex.fallen, 2);
+        ex.obj.rotation.x = -e * (Math.PI / 2 - 0.06);
+      }
+    }
+
     /* -- torches: light the nearest few (perf budget) -- */
     let lit = 0;
     for (const tf of torchLights) {
@@ -985,19 +1313,23 @@
 
     /* -- fire + embers -- */
     flare = Math.max(0, flare - dt * 2);
-    fireLight.intensity = 2.2 + Math.sin(t * 9.3) * 0.3 + Math.random() * 0.15 + flare;
-    for (let i = 0; i < firePts.meta.length; i++) {
-      const m = firePts.meta[i];
-      m.age += dt;
-      if (m.age >= m.life) { firePts.meta[i] = fSpawn(firePts.pos, i, false); continue; }
-      firePts.pos[i * 3 + 1] += m.vy * dt;
+    if (fireLight) fireLight.intensity = 2.2 + Math.sin(t * 9.3) * 0.3 + Math.random() * 0.15 + flare;
+    if (firePts) {
+      for (let i = 0; i < firePts.meta.length; i++) {
+        const m = firePts.meta[i];
+        m.age += dt;
+        if (m.age >= m.life) { firePts.meta[i] = fSpawn(firePts.pos, i, false); continue; }
+        firePts.pos[i * 3 + 1] += m.vy * dt;
+      }
+      firePts.geo.attributes.position.needsUpdate = true;
     }
-    firePts.geo.attributes.position.needsUpdate = true;
-    for (let i = 0; i < emberPts.n; i++) {
-      emberPts.pos[i * 3 + 1] += dt * 0.3;
-      if (emberPts.pos[i * 3 + 1] > 8) emberPts.pos[i * 3 + 1] = 0;
+    if (emberPts) {
+      for (let i = 0; i < emberPts.n; i++) {
+        emberPts.pos[i * 3 + 1] += dt * 0.3;
+        if (emberPts.pos[i * 3 + 1] > 8) emberPts.pos[i * 3 + 1] = 0;
+      }
+      emberPts.geo.attributes.position.needsUpdate = true;
     }
-    emberPts.geo.attributes.position.needsUpdate = true;
 
     renderer.render(scene, camera);
   }
@@ -1008,7 +1340,8 @@
     const btn = document.getElementById("hub-interact");
     if (!wrap) return;
     if (nearTarget) {
-      text.textContent = (nearTarget.bonfire || nearTarget.chest) ? nearTarget.title : `Examine — ${nearTarget.title}`;
+      text.textContent = (nearTarget.bonfire || nearTarget.chest || nearTarget.portal)
+        ? nearTarget.title : `Examine — ${nearTarget.title}`;
       wrap.classList.add("show");
       btn?.classList.add("show");
     } else {

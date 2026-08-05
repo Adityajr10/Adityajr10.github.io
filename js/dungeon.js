@@ -96,8 +96,14 @@
   }
   const pGeo = new THREE.BufferGeometry();
   pGeo.setAttribute("position", new THREE.BufferAttribute(pPos, 3));
+  const dotC = document.createElement("canvas"); dotC.width = dotC.height = 64;
+  const dctx = dotC.getContext("2d");
+  const dg = dctx.createRadialGradient(32, 32, 2, 32, 32, 32);
+  dg.addColorStop(0, "rgba(255,255,255,1)");
+  dg.addColorStop(1, "rgba(255,255,255,0)");
+  dctx.fillStyle = dg; dctx.fillRect(0, 0, 64, 64);
   const points = new THREE.Points(pGeo, new THREE.PointsMaterial({
-    color: 0xff6b35, size: 0.06, transparent: true, opacity: 0.7,
+    map: new THREE.CanvasTexture(dotC), color: 0xff6b35, size: 0.09, transparent: true, opacity: 0.75,
     depthWrite: false, blending: THREE.AdditiveBlending,
   }));
   scene.add(points);
