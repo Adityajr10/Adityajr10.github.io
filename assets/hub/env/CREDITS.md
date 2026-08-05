@@ -16,3 +16,10 @@ License: per the model page on Sketchfab (check author attribution requirements 
 wilds.glb - "Medieval Fantasy Book" by Pixel (https://sketchfab.com/Pixel_bear),
 https://sketchfab.com/3d-models/medieval-fantasy-book-06d5a80a04fc4c5ab552759e9a97d91a
 License: CC Attribution (CC-BY 4.0). Credit: "Medieval Fantasy Book" by Pixel, licensed under CC-BY.
+
+estate.glb - "Mansion Map - Unlimited Gun For Hire" by Villanueva-Jonatan-32621 (https://sketchfab.com/vj32621),
+https://sketchfab.com/3d-models/7c903390ca3b41cfad98ea5bdf4f3c91
+License: CC Attribution (CC-BY 4.0).
+
+js/vendor/three-mesh-bvh.js - three-mesh-bvh v0.5.10 by Garrett Johnson (MIT license),
+https://github.com/gkjohnson/three-mesh-bvh

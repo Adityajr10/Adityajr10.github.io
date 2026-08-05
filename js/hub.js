@@ -37,9 +37,12 @@
   let hintShown = false;
   let terrain = null;                 // walkable terrain (the Vale): {meshes, caster, ...}
   let firePos = { x: 0, z: 0 };       // bonfire location in the current world
-  const WORLD_ORDER = ["hold", "vale", "battlefield"];
-  const WORLD_TITLES = { hold: "Roundtable Hold", vale: "The Forgotten Vale", battlefield: "The Ashen Battlefield", wilds: "The Boundless Wilds" };
-  const WORLD_SPAWNS = { hold: [15.8, 6.6], vale: [0, 30], battlefield: [0, 32], wilds: [0, 40] };
+  const WORLD_ORDER = ["hold", "estate", "vale", "battlefield"];
+  const WORLD_TITLES = {
+    hold: "Roundtable Hold", estate: "The Royal Gardens", vale: "The Forgotten Vale",
+    battlefield: "The Ashen Battlefield", wilds: "The Boundless Wilds",
+  };
+  const WORLD_SPAWNS = { hold: [15.8, 6.6], estate: [0, 40], vale: [0, 30], battlefield: [0, 32], wilds: [0, 40] };
   // Drop another terrain model in as assets/hub/env/wilds.glb and it becomes
   // a fourth world automatically (same walkable-terrain tech as the Vale).
   fetch("assets/hub/env/wilds.glb", { method: "HEAD" })
@@ -159,8 +162,9 @@
       fireLight = null; firePts = null; emberPts = null;
       terrain = null; firePos = { x: 0, z: 0 };
       if (name === "battlefield") buildBattlefield();
-      else if (name === "vale") buildVale();   // async — knight snaps to terrain when ready
-      else if (name === "wilds") buildWilds(); // async — same terrain tech, bigger scale
+      else if (name === "vale") buildVale();     // async — knight snaps to terrain when ready
+      else if (name === "wilds") buildWilds();   // async — same terrain tech, bigger scale
+      else if (name === "estate") buildEstate(); // async — flat showcase avenue
       else buildHold();
     }
     scene.add(knight);
@@ -352,6 +356,13 @@
       minHFrac: 0.1, // the world sits on an open book — keep placements off the bare pages
     });
   }
+  function buildEstate() {
+    return buildTerrainWorld({
+      name: "estate", file: "estate.glb", size: 130,
+      bg: 0x2a2c40, fogC: 0x30324a, bright: true,
+      layout: "avenue", // all project gates in two clean rows — zero searching
+    });
+  }
 
   async function buildTerrainWorld(cfg) {
     const SIZE = cfg.size;
@@ -359,10 +370,11 @@
     scene.background = new THREE.Color(cfg.bg);
     scene.fog = new THREE.Fog(cfg.fogC, SIZE * 0.5, SIZE * 2.5);
 
-    /* golden-hour dusk to match baked daylight textures */
-    scene.add(new THREE.HemisphereLight(0x9587b2, 0x4a3c28, 1.5));
-    scene.add(new THREE.AmbientLight(0x4a4056, 1.0));
-    const sun = new THREE.DirectionalLight(0xffcf94, 1.5);
+    /* golden-hour dusk to match baked daylight textures (brighter if cfg.bright) */
+    const bump = cfg.bright ? 1.3 : 1;
+    scene.add(new THREE.HemisphereLight(0x9587b2, 0x4a3c28, 1.5 * bump));
+    scene.add(new THREE.AmbientLight(0x4a4056, 1.0 * bump));
+    const sun = new THREE.DirectionalLight(0xffcf94, 1.5 * bump);
     sun.position.set(-SIZE * 0.5, SIZE * 0.7, SIZE * 0.38);
     scene.add(sun);
     fireLight = new THREE.PointLight(0xff7a3c, 3.0, 40, 1.5);
@@ -385,6 +397,16 @@
     model.updateMatrixWorld(true);
     const meshes = [];
     model.traverse((o) => { if (o.isMesh) meshes.push(o); });
+    // BVH-accelerate raycasts (vital for heavy meshes like the estate)
+    const BVH = window.MeshBVHLib;
+    if (BVH && BVH.MeshBVH) {
+      try {
+        THREE.Mesh.prototype.raycast = BVH.acceleratedRaycast;
+        for (const m of meshes) {
+          if (m.geometry && !m.geometry.boundsTree) m.geometry.boundsTree = new BVH.MeshBVH(m.geometry);
+        }
+      } catch (e) { /* plain raycasts still work, just slower */ }
+    }
     terrain = {
       meshes,
       caster: new THREE.Raycaster(),
@@ -392,6 +414,7 @@
       dir: new THREE.Vector3(0, -1, 0),
       top: dim.y * s + 15,
     };
+    terrain.caster.firstHitOnly = true; // BVH fast path; harmless otherwise
 
     /* ---- walkability scan: grid of ground samples, slope-checked ---- */
     const R = Math.ceil(SIZE / 2), G = Math.max(2, Math.round(SIZE / 46));
@@ -427,32 +450,63 @@
       (Math.hypot(b.x - cx0, b.z - cz0) < Math.hypot(a.x - cx0, a.z - cz0) ? b : a));   // central clearing
     const flagC = cells.reduce((a, b) => (b.h > a.h ? b : a));                           // highest overlook
 
-    buildBonfire(fireC.x, fireC.h, fireC.z);
-
-    /* ---- stones: flagship on the peak, the rest spread by angular sector ---- */
     const P = window.PORTFOLIO;
     const list = [
       { slug: P.featured.slug, title: P.featured.title, flagship: true },
       ...P.projects.map((p) => ({ slug: p.slug, title: p.title })),
     ];
-    placeStone(list[0], flagC.x, flagC.z, { y: flagC.h, shrine: false });
     const rest = list.slice(1);
-    rest.forEach((p, i) => {
-      const a0 = (i / rest.length) * Math.PI * 2;
-      let bestC = null, bestScore = -1;
-      for (const c of cells) {
-        const dx = c.x - fireC.x, dz = c.z - fireC.z;
-        const d = Math.hypot(dx, dz);
-        if (d < 7) continue;
-        let da = Math.atan2(dx, dz) - a0;
-        da = Math.atan2(Math.sin(da), Math.cos(da));
-        if (Math.abs(da) > Math.PI / rest.length) continue;
-        const score = Math.min(d, SIZE * 0.42) + c.h * 1.5; // favor far + elevated spots
-        if (score > bestScore) { bestScore = score; bestC = c; }
-      }
-      if (!bestC) bestC = cells[(i * 37) % cells.length];
-      placeStone(p, bestC.x, bestC.z, { y: bestC.h, shrine: false });
-    });
+
+    if (cfg.layout === "avenue") {
+      /* showcase avenue: every gate visible from spawn in two facing rows,
+         bonfire on the center line, flagship enthroned at the far end */
+      const used = new Set();
+      const nearestCell = (x, z, maxD = 8) => {
+        let b = null, bd = maxD;
+        for (const c of cells) {
+          if (used.has(c)) continue;
+          const d = Math.hypot(c.x - x, c.z - z);
+          if (d < bd) { bd = d; b = c; }
+        }
+        if (b) used.add(b);
+        return b;
+      };
+      const L = Math.hypot(cx0 - spawnC.x, cz0 - spawnC.z) || 1;
+      const ux = (cx0 - spawnC.x) / L, uz = (cz0 - spawnC.z) / L; // avenue direction
+      const px = -uz, pz = ux;                                     // across the avenue
+      const fc = nearestCell(spawnC.x + ux * 18, spawnC.z + uz * 18) || fireC;
+      buildBonfire(fc.x, fc.h, fc.z);
+      const ec = nearestCell(spawnC.x + ux * 42, spawnC.z + uz * 42) || flagC;
+      placeStone(list[0], ec.x, ec.z, { y: ec.h, shrine: false });
+      rest.forEach((p, i) => {
+        const row = Math.floor(i / 2), side = i % 2 ? 1 : -1;
+        const t = 7 + row * 4.2;
+        const c = nearestCell(spawnC.x + ux * t + px * side * 6, spawnC.z + uz * t + pz * side * 6)
+          || cells[(i * 29) % cells.length];
+        placeStone(p, c.x, c.z, { y: c.h, shrine: false });
+      });
+    } else {
+      buildBonfire(fireC.x, fireC.h, fireC.z);
+
+      /* stones: flagship on the peak, the rest spread by angular sector */
+      placeStone(list[0], flagC.x, flagC.z, { y: flagC.h, shrine: false });
+      rest.forEach((p, i) => {
+        const a0 = (i / rest.length) * Math.PI * 2;
+        let bestC = null, bestScore = -1;
+        for (const c of cells) {
+          const dx = c.x - fireC.x, dz = c.z - fireC.z;
+          const d = Math.hypot(dx, dz);
+          if (d < 7) continue;
+          let da = Math.atan2(dx, dz) - a0;
+          da = Math.atan2(Math.sin(da), Math.cos(da));
+          if (Math.abs(da) > Math.PI / rest.length) continue;
+          const score = Math.min(d, SIZE * 0.42) + c.h * 1.5; // favor far + elevated spots
+          if (score > bestScore) { bestScore = score; bestC = c; }
+        }
+        if (!bestC) bestC = cells[(i * 37) % cells.length];
+        placeStone(p, bestC.x, bestC.z, { y: bestC.h, shrine: false });
+      });
+    }
 
     /* ---- runes: high ledges + scattered ground, well separated ---- */
     const byH = [...cells].sort((a, b) => b.h - a.h);
@@ -1549,7 +1603,7 @@
       const targetGlow = isNear ? 0.55 : 0;
       s.baseEmissive += (targetGlow - s.baseEmissive) * 0.1;
       s.body.material[4].emissive.setRGB(s.baseEmissive * 1.0, s.baseEmissive * 0.55, s.baseEmissive * 0.2);
-      s.label.material.opacity += ((d < 7 ? (isNear ? 1 : 0.55) : 0) - s.label.material.opacity) * 0.08;
+      s.label.material.opacity += ((d < 11 ? (isNear ? 1 : 0.55) : 0) - s.label.material.opacity) * 0.08;
     }
 
     /* -- fire + embers -- */
