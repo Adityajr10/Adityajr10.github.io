@@ -144,6 +144,20 @@
     vel.x = vel.z = 0;
     updatePrompt();
     updateRunesHUD();
+    const tbtn = document.getElementById("hub-travel");
+    if (tbtn) tbtn.textContent = name === "hold"
+      ? "⚔ TRAVEL — THE ASHEN BATTLEFIELD"
+      : "⚔ TRAVEL — ROUNDTABLE HOLD";
+  }
+
+  function travel() {
+    const dest = worldName === "hold" ? "battlefield" : "hold";
+    const spawn = dest === "battlefield" ? [0, 32] : [15.8, 6.6];
+    const title = dest === "battlefield" ? "The Ashen Battlefield" : "Roundtable Hold";
+    if (window.SFX) SFX.play("rest");
+    showReveal(title);
+    enterWorld(dest, spawn);
+    if (window.__toast) __toast("New Area — " + title);
   }
 
   function showReveal(title) {
@@ -276,9 +290,19 @@
     const light = new THREE.PointLight(0xffb86b, 1.4, 12, 2);
     light.position.set(x, 2.2, z);
     sc.add(light);
+    // sky beacon so the gate can be spotted from anywhere
+    const beam = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.5, 0.9, 30, 12, 1, true),
+      new THREE.MeshBasicMaterial({
+        color: 0xffc97a, transparent: true, opacity: 0.1, side: THREE.DoubleSide,
+        blending: THREE.AdditiveBlending, depthWrite: false,
+      })
+    );
+    beam.position.set(x, 15, z);
+    sc.add(beam);
     const rr = Math.hypot(x, z) || 1;
     envPlace("arch_gate.gltf", x * ((rr + 1.3) / rr), z * ((rr + 1.3) / rr), Math.atan2(-x, -z), 4.4);
-    portals.push({ x, z, dest, spawn, title, mesh, light });
+    portals.push({ x, z, dest, spawn, title, mesh, light, beam });
   }
 
   /* ======================================== WORLD 2: THE ASHEN BATTLEFIELD */
@@ -998,6 +1022,7 @@
     window.addEventListener("keyup", (e) => { keys[e.key.toLowerCase()] = false; });
 
     document.getElementById("hub-exit")?.addEventListener("click", exit);
+    document.getElementById("hub-travel")?.addEventListener("click", travel);
     document.getElementById("hub-interact")?.addEventListener("pointerdown", (e) => {
       e.preventDefault();
       if (nearTarget) interact();
@@ -1271,6 +1296,7 @@
       p.mesh.scale.setScalar(1 + Math.sin(t * 2.3) * 0.06);
       p.mesh.material.opacity = 0.6 + Math.sin(t * 3.1) * 0.18;
       p.light.intensity = 1.2 + Math.sin(t * 5.7) * 0.35;
+      if (p.beam) p.beam.material.opacity = 0.07 + Math.sin(t * 1.7) * 0.035;
     }
 
     /* -- skeletons: idle animation; collapse when charged into -- */
