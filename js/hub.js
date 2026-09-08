@@ -120,11 +120,7 @@
     if (window.__lenis) window.__lenis.stop();
     if (window.SFX) SFX.play("rest");
     if (window.__toast) __toast("New Area — Roundtable Hold");
-    showReveal(worldName === "battlefield" ? "The Ashen Battlefield" : "Roundtable Hold");
-    if (!hintShown) {
-      hintShown = true;
-      setTimeout(() => { if (active && window.__toast) __toast("A golden gate shimmers by the eastern wall…"); }, 7000);
-    }
+    showReveal("Roundtable Hold");
     resize();
     last = performance.now();
     loop(last);
@@ -194,20 +190,6 @@
     vel.x = vel.z = 0;
     updatePrompt();
     updateRunesHUD();
-    const tbtn = document.getElementById("hub-travel");
-    if (tbtn) {
-      const next = WORLD_ORDER[(WORLD_ORDER.indexOf(name) + 1) % WORLD_ORDER.length];
-      tbtn.textContent = "⚔ TRAVEL — " + WORLD_TITLES[next].toUpperCase();
-    }
-  }
-
-  function travel() {
-    const dest = WORLD_ORDER[(WORLD_ORDER.indexOf(worldName) + 1) % WORLD_ORDER.length];
-    const title = WORLD_TITLES[dest];
-    if (window.SFX) SFX.play("rest");
-    showReveal(title);
-    enterWorld(dest, WORLD_SPAWNS[dest]);
-    if (window.__toast) __toast("New Area — " + title);
   }
 
   function showReveal(title) {
@@ -281,8 +263,6 @@
       }, undefined, () => {});
     }
 
-    /* travel gate to the Vale — eastern wall, in the gap between stones */
-    addPortal(18.3, 7.6, "vale", [0, 30], "The Forgotten Vale");
   }
 
   /* shared night sky: star dome + moon */
@@ -1374,7 +1354,6 @@
     window.addEventListener("keyup", (e) => { keys[e.key.toLowerCase()] = false; });
 
     document.getElementById("hub-exit")?.addEventListener("click", exit);
-    document.getElementById("hub-travel")?.addEventListener("click", travel);
     document.getElementById("hub-interact")?.addEventListener("pointerdown", (e) => {
       e.preventDefault();
       if (nearTarget) interact();
