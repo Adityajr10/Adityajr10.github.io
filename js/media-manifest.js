@@ -193,9 +193,8 @@ window.MEDIA_MANIFEST = {
                                 ]
                  },
     "unreal-plugins":  {
-                           "cover":  "photos/Screenshot 2026-08-04 200029.png",
+                           "cover":  "photos/Screenshot 2026-08-04 201101.png",
                            "photos":  [
-                                          "photos/Screenshot 2026-08-04 200029.png",
                                           "photos/Screenshot 2026-08-04 201101.png",
                                           "photos/Screenshot 2026-08-04 201116.png",
                                           "photos/Screenshot 2026-08-04 201127.png"
