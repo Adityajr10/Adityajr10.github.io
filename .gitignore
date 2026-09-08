@@ -1,3 +1,11 @@
-﻿.claude/
+.claude/
 Thumbs.db
 desktop.ini
+.DS_Store
+
+# Big gameplay videos belong on YouTube, not in the repo:
+# GitHub hard-rejects any file over 100 MB, and heavy files make the
+# site slow. For anything large, paste the YouTube ID into js/data.js
+# (the site prefers it over a local file). Keep local clips small.
+# .mkv never plays in a browser <video> tag, so never commit it:
+*.mkv

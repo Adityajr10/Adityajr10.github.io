@@ -58,7 +58,7 @@ window.PORTFOLIO = {
     /* Optional intro paragraph shown at the top of its project page,
        before the four system panels. Leave "" to skip. */
     description: "",
-    youtube: null, // TODO: paste YouTube ID
+    youtube: "365G_JaJ80o",
     media: {
       cover: "cover.jpg",
       photos: ["photos/1.jpg", "photos/2.jpg", "photos/3.jpg", "photos/4.jpg"],
@@ -109,17 +109,22 @@ window.PORTFOLIO = {
       youtube: null,
       media: { cover: "cover.jpg", photos: ["photos/1.jpg"], videos: [], shorts: [] },
     },
-    {
-      slug: "dragon-ai",
-      title: "Dragon AI",
-      tags: ["Unreal"],
-      metaTags: ["Unreal", "C++", "AI"],
-      badge: null,
-      blurb: "Personality-driven combat AI — every dragon feels unique on one scalable system.",
-      body: "Six personality traits feed a 7-instinct layer that filters abilities before selection; real-time weighted scoring (distance, energy, cooldowns, altitude, courage-vs-health) picks each move. Fully data-driven abilities — new moves are added via data, not code — so every dragon feels unique on a single scalable system.",
-      youtube: null,
-      media: { cover: "cover.jpg", photos: ["photos/1.jpg"], videos: [], shorts: [] },
-    },
+   {
+  slug: "dragon-ai",
+  title: "Dragon AI",
+  tags: ["Unreal"],
+  metaTags: ["Unreal Engine 5", "C++", "AI", "Behavior Trees", "Blackboard"],
+  badge: null,
+  blurb: "Personality-driven combat AI where every dragon adapts and fights uniquely on a modular, data-driven architecture.",
+  body: "Architected a modular C++ AI framework in Unreal Engine 5 powered by Behavior Trees, Blackboards, and AI Perception. Six personality traits drive a seven-instinct decision layer that dynamically selects from 20+ combat abilities using weighted evaluation of distance, health, energy, cooldowns, altitude, and territorial awareness. Built reusable systems for behavior, flight, abilities, stimuli, and fire-breath attacks, enabling designers to create new dragon variants and abilities through data with minimal code changes while keeping combat adaptive and scalable.",
+  youtube: "ai3WyW9Xsi8",
+  media: {
+    cover: "cover.jpg",
+    photos: ["photos/1.jpg"],
+    videos: [],
+    shorts: [],
+  },
+},
     {
       slug: "bowlbreaker",
       title: "BowlBreaker",
@@ -150,7 +155,7 @@ window.PORTFOLIO = {
       badge: null,
       blurb: "Generates 40,000+ golf courses in one click — 50,000+ lines of procedural C++.",
       body: "Procedurally generates 40,000+ golf courses in one click; 50,000+ lines of C++ for bunkers, fairways, greens, creeks, and pathways; JSON → Unreal coordinates → splines/shapes. Plugins include a Dynamic Spawning System and a Height Adjuster.",
-      youtube: null,
+      youtube: "lRc3bVrbTjc",
       media: { cover: "cover.jpg", photos: ["photos/1.jpg"], videos: [], shorts: [] },
     },
     {
@@ -172,7 +177,7 @@ window.PORTFOLIO = {
       badge: null,
       blurb: "Own and run a gym — AI gym-goers exercise, rest, recharge, and transition dynamically.",
       body: "Gym ownership (entry control, cleaning, equipment placement) with AI gym-goers that exercise, rest, recharge, and transition between activities dynamically.",
-      youtube: null,
+      youtube: "ChwjeR0IPmE",
       media: { cover: "cover.jpg", photos: ["photos/1.jpg"], videos: [], shorts: [] },
     },
     {
@@ -183,7 +188,7 @@ window.PORTFOLIO = {
       badge: null,
       blurb: "Survival sim where AI animals form alliances, hunt in packs, age, and reproduce.",
       body: "A survival game where AI animals form alliances, attack, or coexist; features reproduction, aging, and growth, plus dynamic group hunting and leadership.",
-      youtube: null,
+      youtube: "ebH4yQ78Dv0",
       media: { cover: "cover.jpg", photos: ["photos/1.jpg"], videos: [], shorts: [] },
     },
     {
