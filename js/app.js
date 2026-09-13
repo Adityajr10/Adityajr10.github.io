@@ -84,7 +84,7 @@
     // System panels
     $("#tlb-systems").innerHTML = f.systems.map((s, i) => `
       <article class="system-panel reveal">
-        <span class="system-index">0${i + 1}</span>
+        <span class="system-index">${String(i + 1).padStart(2, "0")}</span>
         <h3>${s.name}</h3>
         <p>${s.body}</p>
       </article>`).join("");
@@ -227,7 +227,7 @@
     if (p.body) blocks.push(`<p class="flow-para">${p.body}</p>`);
     (p.systems || []).forEach((s, i) => blocks.push(`
       <article class="system-panel">
-        <span class="system-index">0${i + 1}</span>
+        <span class="system-index">${String(i + 1).padStart(2, "0")}</span>
         <h3>${s.name}</h3>
         <p>${s.body}</p>
       </article>`));

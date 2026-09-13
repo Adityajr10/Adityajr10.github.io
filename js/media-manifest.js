@@ -13,15 +13,17 @@ window.MEDIA_MANIFEST = {
                             ]
              },
     "ar-replica":  {
-                       "cover":  null,
+                       "cover":  "photos/AR_02.png",
                        "photos":  [
-
+                                      "photos/AR_02.png",
+                                      "photos/AR_09.png",
+                                      "photos/AR_20.png"
                                   ],
                        "videos":  [
 
                                   ],
                        "shorts":  [
-
+                                      "shorts/AR_clip.mp4"
                                   ]
                    },
     "bowlbreaker":  {
@@ -85,15 +87,18 @@ window.MEDIA_MANIFEST = {
                                  ]
                   },
     "fps-obstacle-shooting":  {
-                                  "cover":  null,
+                                  "cover":  "photos/AR_15.png",
                                   "photos":  [
-
+                                                 "photos/AR_15.png",
+                                                 "photos/AR_16.png",
+                                                 "photos/AR_19.png",
+                                                 "photos/AR_20.png"
                                              ],
                                   "videos":  [
-                                                 "videos/FIRST PERSON OBSTACLE SHOOTING.mp4"
+
                                              ],
                                   "shorts":  [
-
+                                                 "shorts/AR_clip.mp4"
                                              ]
                               },
     "golf-simulator-automation":  {
@@ -134,15 +139,21 @@ window.MEDIA_MANIFEST = {
                                      ]
                       },
     "kaliyugas-end":  {
-                          "cover":  null,
+                          "cover":  "photos/shot_01.png",
                           "photos":  [
-
+                                         "photos/shot_01.png",
+                                         "photos/shot_04.png",
+                                         "photos/shot_15.png",
+                                         "photos/shot_18.png",
+                                         "photos/shot_24.png"
                                      ],
                           "videos":  [
                                          "videos/Level1.mp4"
                                      ],
                           "shorts":  [
-
+                                         "shorts/clip1.mp4",
+                                         "shorts/clip2.mp4",
+                                         "shorts/clip3.mp4"
                                      ]
                       },
     "raylib-games":  {
