@@ -314,13 +314,13 @@ window.PORTFOLIO = {
   timeline: [
     {
       company: "Rickshaw Studio",
-      role: "Game Systems Programmer — Unreal, C++",
+      role: "Senior Gameplay Programmer — Unreal, C++",
       period: "Jun 2025 – Present",
       body: "Puzzle interaction via FABRIK / Two-Bone IK; enemy AI architecture for all enemies; RDR2-style in-place rotation; GAS ability system; interaction / inspection / inventory systems.",
     },
     {
       company: "Teams of Keys",
-      role: "Game Developer",
+      role: "Gameplay Programmer",
       period: "Mar 2024 – May 2025",
       body: "C++ game classes and automation; Blueprint + C++ integration; client projects; plugin creation.",
     },
